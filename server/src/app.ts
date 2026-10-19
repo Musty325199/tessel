@@ -19,7 +19,7 @@ export function createApp(db: Store) {
   app.use(express.json({ limit: '1mb' }));
   app.use(readUser);
 
-  app.get('/', (_req, res) => { res.json({ name: 'Tessel API', ok: true, docs: '/api/docs' }); });
+  app.get('/', (_req, res) => { res.json({ name: 'Tessel API', ok: true, docs: 'https://github.com/Musty325199/tessel#readme' }); });
   app.get('/health', (_req, res) => { res.json({ ok: true, uptime: Math.round(process.uptime()) }); });
 
   app.use('/api/auth', authRoutes(db));
