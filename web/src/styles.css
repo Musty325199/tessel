@@ -65,16 +65,31 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   content: ''; position: absolute; right: 0; bottom: 0; width: 22px; height: 22px;
   background: linear-gradient(135deg, rgba(0, 0, 0, .1), rgba(0, 0, 0, 0) 60%); border-radius: 0 0 18px 0; pointer-events: none;
 }
-.label { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; max-height: 100%; overflow: hidden; pointer-events: none; }
+.label { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; max-height: 100%; overflow: hidden; pointer-events: none; }
 
-.text { font-weight: 600; line-height: 1.15; letter-spacing: -.02em; white-space: pre-wrap; overflow-wrap: anywhere; padding: 2px 0; }
+.text { line-height: 1.18; letter-spacing: -.015em; white-space: pre-wrap; overflow-wrap: anywhere; padding: 2px 0; }
+.text.hl { padding: 4px 10px; border-radius: 8px; }
+
+/* in-place editor: the hidden copy and the textarea share one grid cell, so they size and wrap identically */
+.edit-wrap { display: grid; width: 100%; max-height: 100%; min-width: 0; text-align: inherit; }
+.edit-wrap > .ghost, .edit-wrap > .edit {
+  grid-area: 1 / 1; margin: 0; padding: 0; border: 0; min-width: 0;
+  font: inherit; letter-spacing: inherit; line-height: inherit; text-align: inherit; text-decoration: inherit; color: inherit;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal;
+}
+.edit-wrap > .ghost { visibility: hidden; pointer-events: none; }
+.edit {
+  width: 100%; height: 100%; resize: none; outline: 0; background: transparent; overflow: hidden;
+  -webkit-user-select: text; user-select: text; caret-color: var(--accent); -webkit-appearance: none; appearance: none; border-radius: 0;
+}
+.sticky .edit-wrap, .geo-wrap .edit-wrap { max-height: 100%; overflow: hidden; }
+.sticky.editing { box-shadow: var(--note), 0 0 0 2px var(--accent); }
 .text .placeholder { opacity: .4; }
-.text .ghost { visibility: hidden; white-space: pre-wrap; }
 
 .geo-wrap { display: flex; align-items: center; justify-content: center; padding: 10px 16px; text-align: center; font-weight: 500; font-size: 17px; line-height: 1.2; }
 .geo-wrap.diamond { padding: 22% 20%; }
 .geo { position: absolute; inset: 0; overflow: visible; }
-.geo-wrap .label, .geo-wrap .edit { position: relative; }
+.geo-wrap .label, .geo-wrap .edit-wrap { position: relative; }
 
 .frame { background: var(--frame-bg); border: 1px solid var(--frame-line); border-radius: 18px; pointer-events: none; }
 .frame-title {
@@ -83,7 +98,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 }
 .frame-title:hover { background: var(--surface-2); }
 .frame-edit { position: absolute; left: 4px; bottom: 100%; margin-bottom: 6px; width: min(100%, 420px); height: 28px; pointer-events: auto; }
-.frame-edit .edit { font-size: 15px; font-weight: 600; color: var(--ink); background: var(--surface); border-radius: 6px; padding: 2px 6px; }
+.frame-edit .edit-wrap { font-size: 15px; font-weight: 600; color: var(--ink); background: var(--surface); border-radius: 6px; padding: 2px 6px; text-align: left; }
 
 .image { border-radius: 10px; overflow: hidden; box-shadow: var(--note); background: var(--surface-2); }
 .image img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
@@ -93,13 +108,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .arrows { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .arrows .hit { pointer-events: stroke; }
 
-.edit {
-  position: absolute; inset: 0; width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: transparent;
-  font: inherit; color: inherit; letter-spacing: inherit; line-height: inherit; padding: inherit; text-align: inherit; overflow: hidden;
-  -webkit-user-select: text; user-select: text; caret-color: var(--accent);
-}
-.sticky .edit, .geo-wrap .edit { display: flex; text-align: center; padding: 0; height: auto; inset: auto; position: relative; field-sizing: content; min-height: 1.3em; max-height: 100%; }
-.text .edit { padding: 2px 0; }
 
 /* ---------- selection, in screen space */
 .selection {
@@ -187,7 +195,41 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   position: absolute; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 5px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--lift); animation: pop .12s ease-out;
 }
-.stylebar .swatches + .ib { border-left: 1px solid var(--line); border-radius: 0 11px 11px 0; }
+.stylebar.pinned { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 70px) !important; z-index: 40; max-width: calc(100vw - 16px); }
+
+/* ---------- formatting bar */
+.fmt { display: flex; align-items: center; gap: 2px; position: relative; max-width: calc(100vw - 24px); }
+.fmt-group { display: flex; align-items: center; gap: 1px; padding: 0 3px; }
+.fmt-group + .fmt-group { border-left: 1px solid var(--line); }
+.fmt-btn { height: 36px; min-width: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--ink); font-size: 15px; padding: 0 6px; }
+.fmt-btn:hover { background: var(--surface-2); }
+.fmt-btn.on { background: var(--surface-2); }
+.fmt-btn.act { background: var(--ink); color: var(--surface); }
+.fmt-btn.sq { width: 36px; padding: 0; }
+.fmt-btn.font { padding: 0 6px 0 10px; min-width: 104px; justify-content: space-between; font-weight: 600; }
+.fmt-btn.size { min-width: 46px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fmt-btn.done { background: var(--ink); color: var(--surface); font-weight: 600; padding: 0 14px; }
+.fmt-btn b { font-weight: 800; font-size: 16px; }
+.serif-i { font-family: Georgia, serif; font-size: 17px; }
+.fmt-btn u, .fmt-btn s { font-size: 16px; font-weight: 600; }
+.stepper { display: flex; align-items: center; background: var(--surface-2); border-radius: 11px; margin-left: 4px; }
+.stepper .fmt-btn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.chip { width: 22px; height: 22px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .14); }
+.chip.none, .sw.none { background: repeating-linear-gradient(-45deg, var(--surface) 0 4px, var(--line) 4px 6px); }
+.ink-a { font-weight: 800; font-size: 17px; line-height: 1; padding-bottom: 2px; border-bottom: 4px solid var(--ink-c); min-width: 18px; display: inline-flex; justify-content: center; }
+.fmt-pop {
+  position: absolute; left: 0; top: calc(100% + 10px); min-width: 210px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--lift); padding: 6px; display: flex; flex-direction: column; animation: popm .12s ease-out; z-index: 5;
+}
+.stylebar.flip .fmt-pop { top: auto; bottom: calc(100% + 10px); }
+.pop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px; border-radius: 9px; text-align: left; }
+.pop-row:hover, .pop-row.on { background: var(--surface-2); }
+.row-ic { display: inline-flex; align-items: center; gap: 10px; font-size: 14.5px; font-weight: 500; }
+.size-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 2px; }
+.pop-chip { height: 36px; border-radius: 9px; font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
+.pop-chip:hover { background: var(--surface-2); }
+.pop-chip.on { background: var(--ink); color: var(--surface); }
+.pop-sw { padding: 6px; gap: 8px; flex-wrap: wrap; }
 .ib.txt { width: auto; padding: 0 9px; font-weight: 700; font-size: 15px; display: flex; gap: 3px; align-items: baseline; }
 .ib.txt small { font-weight: 500; font-size: 11px; color: var(--ink-2); }
 
@@ -217,9 +259,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   .share span { display: none; }
   .share { padding: 0; width: 38px; justify-content: center; }
   .avatar { display: none; }
-  .stylebar .sw { width: 24px; height: 24px; }
-  .stylebar .swatches { gap: 5px; padding: 0 5px 0 3px; }
-  .stylebar .ib { width: 36px; height: 36px; }
+  .stylebar { padding: 4px; }
+  .stylebar .fmt { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .stylebar .fmt::-webkit-scrollbar { display: none; }
+  .stylebar .ib { width: 36px; height: 36px; flex: none; }
+  .fmt-btn.font { min-width: 92px; }
+  .fmt-group { flex: none; }
   .brand, .people { height: 48px; }
 }
 @media (max-width: 360px) { .tool { width: 37px; } }

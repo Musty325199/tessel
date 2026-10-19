@@ -6,6 +6,7 @@ import {
 } from './store';
 import type { Awareness } from 'y-protocols/awareness';
 import { Cursors, RemoteSelections, Reactions, usePeers, type Peer } from './presence';
+import { FORMATTABLE, FormatBar, applyList } from './format';
 import type { End, Shape } from './store';
 import { ArrowLayer, ShapeView } from './ShapeView';
 import { arrowPoints, boundsOf, clampZ, contains, fitCamera, intersects, normBox, union } from './geometry';
@@ -30,7 +31,6 @@ type Gesture =
 
 const TEXTUAL = new Set(['sticky', 'text', 'rect', 'ellipse', 'diamond', 'frame']);
 const BINDABLE = new Set(['sticky', 'text', 'rect', 'ellipse', 'diamond', 'image']);
-const SIZES = [16, 24, 36, 52];
 
 const store = {
   get(k: string) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -124,6 +124,25 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
     };
     requestAnimationFrame(step);
   }, [lookup]);
+
+  // phones: keep the note you're typing in above the keyboard
+  useEffect(() => {
+    if (!editing) return;
+    const vv = window.visualViewport; if (!vv) return;
+    const keepVisible = () => {
+      const el = document.querySelector(`[data-id="${editing}"]`); const root = rootRef.current;
+      if (!el || !root) return;
+      const r = el.getBoundingClientRect();
+      const bottomLimit = vv.offsetTop + vv.height - 16, topLimit = vv.offsetTop + 130;
+      let dy = 0;
+      if (r.bottom > bottomLimit) dy = bottomLimit - r.bottom;
+      if (r.top + dy < topLimit) dy = topLimit - r.top;
+      if (Math.abs(dy) > 2) { const c = camRef.current; setCam({ ...c, y: c.y + dy }); }
+    };
+    const t = setTimeout(keepVisible, 350);
+    vv.addEventListener('resize', keepVisible);
+    return () => { clearTimeout(t); vv.removeEventListener('resize', keepVisible); };
+  }, [editing]);
 
   // fit the board into view once its content has arrived
   useEffect(() => {
@@ -513,7 +532,15 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   };
   const restyle = (patch: Partial<Shape>) => {
     const patches: Record<string, Partial<Shape>> = {};
-    selRef.current.forEach((id) => { patches[id] = patch; });
+    selRef.current.forEach((id) => {
+      const s = shapeById(id); if (!s) return;
+      const p: Partial<Shape> = { ...patch };
+      // a text box's colour is its stroke; other shapes keep fill and text colour apart
+      if ('textColor' in p && s.type === 'text') { p.stroke = p.textColor; delete p.textColor; }
+      if (!FORMATTABLE.has(s.type)) { (['font', 'size', 'bold', 'italic', 'underline', 'strike', 'align', 'textColor'] as const).forEach((k) => delete p[k]); }
+      if (s.type === 'text' && 'color' in p) { /* highlight */ }
+      patches[id] = p;
+    });
     updateMany(patches);
   };
   const doUndo = () => { finishEdit(); undo.undo(); };
@@ -578,7 +605,6 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   const single = selShapes.length === 1 ? selShapes[0] : null;
   const types = new Set(selShapes.map((s) => s.type));
   const only = (...t: string[]) => selShapes.length > 0 && Array.from(types).every((x) => t.includes(x));
-  const curSize = single?.type === 'text' ? single.size || 24 : 0;
 
   const cursor = space || tool === 'hand' ? (gesture.current?.kind === 'pan' ? 'grabbing' : 'grab') : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair';
 
@@ -634,24 +660,31 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
       {top && <header className="top">{top}</header>}
       {following !== null && (() => { const p = peers.find((x) => x.clientId === following); return p ? <div className="following" style={{ ['--me' as string]: p.color }}>Following {p.name}<button onClick={() => setFollowing(null)}>Stop</button></div> : null; })()}
 
-      {/* ---- style bar for the selection */}
-      {selBox && !busy && !editing && selShapes.length > 0 && !readOnly && (() => {
+      {/* ---- formatting bar for the selection (stays while you type) */}
+      {selBox && !busy && selShapes.length > 0 && !readOnly && (() => {
         const r = toScreen(selBox);
         const el = rootRef.current;
-        const vw = el?.clientWidth || 400;
+        const vw = el?.clientWidth || 400, vh = el?.clientHeight || 800;
+        const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+        // on phones the keyboard covers the bottom, so while typing the bar sits under the top bar
+        const pinned = !!editing && coarse;
         const above = r.top - 62;
-        const top = above > 70 ? above : r.top + r.height + 14;
-        const left = Math.min(Math.max(12, r.left + r.width / 2), vw - 12);
-        const swatches = only('sticky') ? { list: STICKY, key: 'color' as const } : only('rect', 'ellipse', 'diamond') ? { list: FILLS, key: 'color' as const } : only('text', 'pen', 'arrow') ? { list: INKS, key: 'stroke' as const } : null;
-        const current = single ? (swatches?.key === 'stroke' ? single.stroke : single.color) : undefined;
+        const top = pinned ? 72 : above > 70 ? above : Math.min(r.top + r.height + 14, vh - 150);
+        const left = pinned ? vw / 2 : Math.min(Math.max(12, r.left + r.width / 2), vw - 12);
         return (
-          <div ref={barRef} className="stylebar" style={{ top: Math.min(top, (el?.clientHeight || 800) - 150), left }}>
-            {swatches && <div className="swatches">{swatches.list.map((c) => <button key={c} aria-label="Colour" className={'sw' + (current === c ? ' on' : '')} style={{ background: inkColor(c) }} onClick={() => restyle({ [swatches.key]: c })} />)}</div>}
-            {single?.type === 'text' && <button className="ib txt" title="Text size" onClick={() => restyle({ size: SIZES[(SIZES.indexOf(curSize) + 1) % SIZES.length] || 24 })}>Aa<small>{curSize}</small></button>}
-            {single && TEXTUAL.has(single.type) && <button className="ib" title="Edit text" aria-label="Edit text" onClick={() => startEdit(single.id)}><Icon n="text" size={19} /></button>}
-            <button className="ib" title="Duplicate (Ctrl D)" aria-label="Duplicate" onClick={duplicate}><Icon n="copy" size={19} /></button>
-            {!only('frame') && <button className="ib" title="Bring to front" aria-label="Bring to front" onClick={toFront}><Icon n="front" size={19} /></button>}
-            <button className="ib" title="Delete" aria-label="Delete" onClick={remove}><Icon n="trash" size={19} /></button>
+          <div ref={barRef} className={'stylebar' + (pinned ? ' pinned' : '')} style={{ top, left }}>
+            <FormatBar
+              shapes={selShapes}
+              editing={!!editing}
+              onPatch={restyle}
+              onListChange={(kind) => { const patches: Record<string, Partial<Shape>> = {}; selShapes.forEach((x) => { if (FORMATTABLE.has(x.type)) patches[x.id] = { text: applyList(x.text, kind) }; }); updateMany(patches); }}
+              tail={editing ? <button className="fmt-btn done" onClick={() => { (document.activeElement as HTMLElement)?.blur?.(); }}>Done</button> : <>
+                {single && TEXTUAL.has(single.type) && <button className="ib" title="Edit text (Enter)" aria-label="Edit text" onClick={() => startEdit(single.id)}><Icon n="edit" size={18} /></button>}
+                <button className="ib" title="Duplicate (Ctrl D)" aria-label="Duplicate" onClick={duplicate}><Icon n="copy" size={18} /></button>
+                {!only('frame') && <button className="ib" title="Bring to front" aria-label="Bring to front" onClick={toFront}><Icon n="front" size={18} /></button>}
+                <button className="ib" title="Delete" aria-label="Delete" onClick={remove}><Icon n="trash" size={18} /></button>
+              </>}
+            />
           </div>
         );
       })()}

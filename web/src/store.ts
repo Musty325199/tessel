@@ -16,6 +16,9 @@ export type Shape = {
   points?: number[]; // pen: flat [x, y, pressure, ...] relative to x/y
   from?: End; to?: End;
   src?: string;
+  // text formatting (whole shape)
+  font?: string; bold?: boolean; italic?: boolean; underline?: boolean; strike?: boolean;
+  align?: 'left' | 'center' | 'right'; textColor?: string;
 };
 
 export const LOCAL = 'local';
