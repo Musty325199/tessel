@@ -4,6 +4,10 @@ if (env.NODE_ENV === 'production' && (!env.JWT_SECRET || env.JWT_SECRET.length <
   throw new Error('JWT_SECRET must be set to a long random value in production.');
 }
 
+if (env.NODE_ENV === 'production' && !env.MONGODB_URI) {
+  throw new Error('MONGODB_URI must be set in production, or every board is lost on restart.');
+}
+
 export const config = {
   port: Number(env.PORT || 8787),
   mongoUri: env.MONGODB_URI || '',
