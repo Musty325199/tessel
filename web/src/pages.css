@@ -128,7 +128,9 @@ a.share { text-decoration: none; }
 .sub { font-size: 14px; margin: 8px 0 0; color: var(--ink-2); font-weight: 600; }
 .people-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .people-list li { display: flex; align-items: center; gap: 12px; }
-.people-list li > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.people-list li > span:not(.avatar-dot) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.people-list, .people-list * { text-decoration: none; }
+.people-list .avatar-dot { flex: none; }
 .people-list small { color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
 .people-list em { font-style: normal; color: var(--ink-2); font-size: 14px; }
 .people-list select { height: 38px; font-size: 14px; padding: 0 8px; }
