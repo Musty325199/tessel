@@ -35,13 +35,15 @@
 html, body, #root { margin: 0; height: 100%; }
 body {
   background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 15px;
-  position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none;
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
-  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
+/* board screens own every touch: no page bounce, no text selection */
+:root.lock body { position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none; }
+.app { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.app { position: fixed; inset: 0; }
+.app { position: absolute; inset: 0; overflow: hidden; }
+.board-page { position: fixed; inset: 0; }
 
 /* ---------- the board */
 .board {

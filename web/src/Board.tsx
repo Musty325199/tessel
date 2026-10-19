@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  allShapes, clearBoard, createShape, deleteShapes, doc, getShape, metaMap, openLocalBoard, shapeById, topZ,
-  undo, updateMany, updateShape, useShapes, useUndoState, LOCAL,
+  allShapes, createShape, deleteShapes, doc, getShape, shapeById, topZ,
+  undo, updateMany, updateShape, useShapes, LOCAL,
 } from './store';
+import type { Awareness } from 'y-protocols/awareness';
+import { Cursors, RemoteSelections, Reactions, usePeers, type Peer } from './presence';
 import type { End, Shape } from './store';
 import { ArrowLayer, ShapeView } from './ShapeView';
 import { arrowPoints, boundsOf, clampZ, contains, fitCamera, intersects, normBox, union } from './geometry';
 import type { Box, Cam } from './geometry';
-import Icon, { Mark } from './icons';
+import Icon from './icons';
 import { FILLS, INKS, PEOPLE, STICKY, inkColor } from './palette';
-import { seedBoard } from './seed';
 
 type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'rect' | 'ellipse' | 'diamond' | 'frame' | 'arrow' | 'pen' | 'eraser';
 type Pt = { x: number; y: number };
@@ -36,15 +37,30 @@ const store = {
   set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
 };
 
-const me = (() => {
+const localMe = (() => {
   let c = store.get('tessel:color');
   if (!c || !PEOPLE.includes(c)) { c = PEOPLE[Math.floor(Math.random() * PEOPLE.length)]; store.set('tessel:color', c); }
   return { name: 'You', color: c };
 })();
 
-export default function App() {
+export type BoardApi = {
+  fit: (animate?: boolean) => void;
+  say: (t: string) => void;
+  follow: (clientId: number | null) => void;
+  center: () => { x: number; y: number };
+};
+type BoardProps = {
+  awareness?: Awareness | null;
+  readOnly?: boolean;
+  embedded?: boolean;
+  loaded: boolean;
+  top?: React.ReactNode;
+  onApi?: (api: BoardApi) => void;
+  onFollowChange?: (clientId: number | null) => void;
+};
+
+export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange }: BoardProps) {
   const shapes = useShapes();
-  const { canUndo, canRedo } = useUndoState();
   const rootRef = useRef<HTMLDivElement>(null);
   const [cam, setCamState] = useState<Cam>({ x: 0, y: 0, z: 1 });
   const camRef = useRef(cam);
@@ -60,14 +76,20 @@ export default function App() {
   const setEditing = (id: string | null) => { editingRef.current = id; setEditingState(id); };
   const [marquee, setMarquee] = useState<Box | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tray, setTray] = useState<null | 'sticky' | 'shapes' | 'pen'>(null);
-  const [menu, setMenu] = useState(false);
+  const [tray, setTray] = useState<null | 'sticky' | 'shapes' | 'pen' | 'react'>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chat, setChat] = useState('');
   const [stickyColor, setStickyColor] = useState(STICKY[0]);
   const [penColor, setPenColor] = useState('ink');
   const [shapeKind, setShapeKind] = useState<'rect' | 'ellipse' | 'diamond' | 'frame'>('rect');
   const [toast, setToast] = useState('');
-  const [title, setTitle] = useState('Launch plan');
-  const [theme, setTheme] = useState<string>(store.get('tessel:theme') || 'system');
+  const [following, setFollowingState] = useState<number | null>(null);
+  const followRef = useRef<number | null>(null);
+  const setFollowing = (c: number | null) => { followRef.current = c; setFollowingState(c); onFollowChange?.(c); };
+  const peers = usePeers(awareness);
+  const self = (awareness?.getLocalState() as { user?: { name: string; color: string } } | null)?.user;
+  const me = self ? { name: 'You', color: self.color } : localMe;
+  const readOnlyRef = useRef(readOnly); readOnlyRef.current = readOnly;
   const [space, setSpace] = useState(false);
   const spaceRef = useRef(false);
   const gesture = useRef<Gesture | null>(null);
@@ -88,14 +110,6 @@ export default function App() {
   const lookup = useCallback((id: string) => shapeById(id), []);
   const say = (t: string) => { setToast(t); window.clearTimeout((say as any).t); (say as any).t = window.setTimeout(() => setToast(''), 2600); };
 
-  // ---- theme
-  useEffect(() => {
-    if (theme === 'system') document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.setAttribute('data-theme', theme);
-    store.set('tessel:theme', theme);
-  }, [theme]);
-
-  // ---- open the board saved on this device (or the sample board on a first visit)
   const fit = useCallback((animate = false) => {
     const b = union(allShapes().map((s) => boundsOf(s, lookup)).map((b) => ({ ...b, y: b.y - 30, h: b.h + 30 })));
     const el = rootRef.current; if (!el) return;
@@ -111,16 +125,38 @@ export default function App() {
     requestAnimationFrame(step);
   }, [lookup]);
 
+  // fit the board into view once its content has arrived
   useEffect(() => {
-    const p = openLocalBoard('demo', (empty) => {
-      if (empty) seedBoard(window.innerWidth < 700);
-      setTitle((metaMap.get('title') as string) || 'Launch plan');
-      requestAnimationFrame(() => { fit(); setReady(true); });
+    if (!loaded) return;
+    requestAnimationFrame(() => { fit(); setReady(true); });
+  }, [loaded, fit]);
+
+  // share where I am and what I'm looking at, for cursors and "follow"
+  const publishView = useCallback(() => {
+    const el = rootRef.current; if (!awareness || !el) return;
+    const c = camRef.current;
+    awareness.setLocalStateField('view', { x: (el.clientWidth / 2 - c.x) / c.z, y: (el.clientHeight / 2 - c.y) / c.z, w: el.clientWidth / c.z, h: el.clientHeight / c.z });
+  }, [awareness]);
+  useEffect(() => { const t = setTimeout(publishView, 120); return () => clearTimeout(t); }, [cam, publishView]);
+  useEffect(() => { awareness?.setLocalStateField('selection', sel); }, [sel, awareness]);
+
+  // following someone: keep my camera on theirs
+  useEffect(() => {
+    if (following === null) return;
+    const p = peers.find((x) => x.clientId === following);
+    if (!p) { setFollowing(null); say('They left the board.'); return; }
+    const el = rootRef.current; if (!el || !p.view) return;
+    const z = clampZ(Math.min(el.clientWidth / p.view.w, el.clientHeight / p.view.h));
+    setCam({ z, x: el.clientWidth / 2 - p.view.x * z, y: el.clientHeight / 2 - p.view.y * z });
+  }, [peers, following]);
+
+  useEffect(() => {
+    onApi?.({
+      fit, say,
+      follow: (c) => { setFollowing(c); if (c !== null) { const p = peers.find((x) => x.clientId === c); if (p) say(`Following ${p.name}. Move the board to stop.`); } },
+      center: () => viewCenter(),
     });
-    const onMeta = () => setTitle((metaMap.get('title') as string) || 'Launch plan');
-    metaMap.observe(onMeta);
-    return () => { metaMap.unobserve(onMeta); p.destroy(); };
-  }, [fit]);
+  });
 
   // drop selections that no longer exist (after undo, erase, clear)
   useEffect(() => {
@@ -167,7 +203,8 @@ export default function App() {
   // ---- pointer input
   function onPointerDown(e: React.PointerEvent) {
     if (e.button === 2) return;
-    setMenu(false); setTray(null);
+    setTray(null);
+    if (followRef.current !== null) setFollowing(null);
     const root = rootRef.current!;
     try { root.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -190,6 +227,11 @@ export default function App() {
     undo.stopCapturing();
 
     const t = toolRef.current;
+    if (readOnlyRef.current) {
+      if (e.pointerType !== 'touch' && hitId) { setSel([hitId]); return; }
+      gesture.current = { kind: 'pan', start: { x: e.clientX, y: e.clientY }, cam: camRef.current, moved: false, clearOnTap: true };
+      return;
+    }
     if (spaceRef.current || t === 'hand' || e.button === 1) {
       gesture.current = { kind: 'pan', start: { x: e.clientX, y: e.clientY }, cam: camRef.current, moved: false };
       return;
@@ -264,6 +306,10 @@ export default function App() {
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    if (awareness && (e.pointerType === 'mouse' || pointers.current.has(e.pointerId))) {
+      const w = toWorld(e.clientX, e.clientY);
+      awareness.setLocalStateField('cursor', { x: Math.round(w.x), y: Math.round(w.y) });
+    }
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const g = gesture.current; if (!g) return;
@@ -364,6 +410,7 @@ export default function App() {
 
   function onPointerUp(e: React.PointerEvent) {
     pointers.current.delete(e.pointerId);
+    if (e.pointerType === 'touch' && awareness && pointers.current.size === 0) awareness.setLocalStateField('cursor', null);
     const g = gesture.current;
     if (g?.kind === 'pinch') { if (pointers.current.size === 0) gesture.current = null; return; }
     gesture.current = null;
@@ -430,6 +477,7 @@ export default function App() {
     const el = rootRef.current!;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      if (followRef.current !== null) setFollowing(null);
       const r = el.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
       else { const c = camRef.current; setCam({ ...c, x: c.x - e.deltaX, y: c.y - e.deltaY }); }
@@ -495,7 +543,9 @@ export default function App() {
     const down = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+      if (!rootRef.current?.isConnected) return;
       const mod = e.metaKey || e.ctrlKey;
+      if (readOnlyRef.current) { if (e.shiftKey && e.key === '!') fit(true); return; }
       const k = e.key.toLowerCase();
       if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
       if (mod && k === 'y') { e.preventDefault(); doRedo(); return; }
@@ -506,7 +556,8 @@ export default function App() {
       if (mod) return;
       if (e.key === ' ' && !spaceRef.current) { spaceRef.current = true; setSpace(true); e.preventDefault(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove(); return; }
-      if (e.key === 'Escape') { setSel([]); setTool('select'); setMenu(false); return; }
+      if (e.key === 'Escape') { setSel([]); setTool('select'); return; }
+      if (e.key === '/' && awareness) { e.preventDefault(); setChat(''); setChatOpen(true); return; }
       if (e.key === 'Enter' && selRef.current.length === 1) { e.preventDefault(); startEdit(selRef.current[0]); return; }
       if (e.shiftKey && k === '1') { fit(true); return; }
       if (keys[k]) setTool(keys[k]);
@@ -532,9 +583,10 @@ export default function App() {
   const cursor = space || tool === 'hand' ? (gesture.current?.kind === 'pan' ? 'grabbing' : 'grab') : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair';
 
   return (
-    <div className="app">
+    <div className={'app' + (embedded ? ' embedded' : '') + (readOnly ? ' readonly' : '')}>
       <div
         ref={rootRef}
+        onPointerLeave={(e) => { if (e.pointerType === 'mouse') awareness?.setLocalStateField('cursor', null); }}
         className={'board' + (ready ? ' ready' : '')}
         style={{
           cursor,
@@ -547,6 +599,7 @@ export default function App() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={(e) => {
+          if (readOnlyRef.current) return;
           const id = (e.target as Element).closest('[data-id]')?.getAttribute('data-id');
           if (id) startEdit(id);
           else if (toolRef.current === 'select') { const w = toWorld(e.clientX, e.clientY); const nid = createShape({ type: 'sticky', x: w.x - 90, y: w.y - 85, w: 180, h: 170, text: '', color: stickyColor }); startEdit(nid); }
@@ -573,43 +626,16 @@ export default function App() {
           });
         })()}
         {marquee && <div className="marquee" style={{ ...toScreen(marquee), ['--me' as string]: me.color }} />}
+        {awareness && <RemoteSelections peers={peers} cam={cam} lookup={lookup} />}
+        {awareness && <Reactions peers={peers} cam={cam} />}
+        {awareness && <Cursors peers={peers} cam={cam} />}
       </div>
 
-      {/* ---- top bar */}
-      <header className="top">
-        <div className="pill brand">
-          <a className="logo" href="./" aria-label="Tessel home"><Mark size={24} /></a>
-          <input
-            className="title"
-            aria-label="Board name"
-            value={title}
-            onChange={(e) => { setTitle(e.target.value); }}
-            onBlur={(e) => { doc.transact(() => metaMap.set('title', e.target.value.trim() || 'Untitled board'), 'quiet'); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-          />
-          <span className="sep" />
-          <button className="ib" onClick={doUndo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl Z)"><Icon n="undo" size={20} /></button>
-          <button className="ib" onClick={doRedo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl Shift Z)"><Icon n="redo" size={20} /></button>
-        </div>
-        <div className="pill people">
-          <span className="avatar" style={{ background: me.color }} title="You">Y</span>
-          <button className="share" onClick={() => say('Live sharing arrives in the next build.')}><Icon n="share" size={18} /><span>Share</span></button>
-          <button className="ib" aria-label="Board menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}><Icon n="more" size={20} /></button>
-        </div>
-        {menu && (
-          <div className="menu" role="menu">
-            <button onClick={() => { fit(true); setMenu(false); }}><Icon n="fit" size={18} />Fit board to screen</button>
-            <div className="seg" role="group" aria-label="Theme">
-              {(['system', 'light', 'dark'] as const).map((t) => <button key={t} className={theme === t ? 'on' : ''} onClick={() => setTheme(t)}>{t === 'system' ? 'Auto' : t === 'light' ? 'Light' : 'Dark'}</button>)}
-            </div>
-            <button onClick={() => { clearBoard(); seedBoard(window.innerWidth < 700); setSel([]); setMenu(false); requestAnimationFrame(() => fit(true)); }}><Icon n="reset" size={18} />Restore the sample board</button>
-            <button className="danger" onClick={() => { clearBoard(); setSel([]); setMenu(false); say('Board cleared. Undo brings it back.'); }}><Icon n="trash" size={18} />Clear the board</button>
-          </div>
-        )}
-      </header>
+      {top && <header className="top">{top}</header>}
+      {following !== null && (() => { const p = peers.find((x) => x.clientId === following); return p ? <div className="following" style={{ ['--me' as string]: p.color }}>Following {p.name}<button onClick={() => setFollowing(null)}>Stop</button></div> : null; })()}
 
       {/* ---- style bar for the selection */}
-      {selBox && !busy && !editing && selShapes.length > 0 && (() => {
+      {selBox && !busy && !editing && selShapes.length > 0 && !readOnly && (() => {
         const r = toScreen(selBox);
         const el = rootRef.current;
         const vw = el?.clientWidth || 400;
@@ -648,7 +674,7 @@ export default function App() {
       )}
 
       {/* ---- toolbar */}
-      <nav className="toolbar" aria-label="Tools">
+      {readOnly ? <div className="viewonly pill">View only</div> : <nav className="toolbar" aria-label="Tools">
         <ToolBtn n="select" label="Select (V)" on={tool === 'select'} onClick={() => setTool('select')} />
         <ToolBtn n="hand" label="Move around (H)" on={tool === 'hand'} onClick={() => setTool('hand')} className="desk" />
         <ToolBtn n="sticky" label="Sticky note (S)" on={tool === 'sticky'} onClick={() => { if (tool === 'sticky') setTray(tray === 'sticky' ? null : 'sticky'); else setTool('sticky'); }} dot={stickyColor} />
@@ -658,8 +684,21 @@ export default function App() {
         <ToolBtn n="pen" label="Pen (P)" on={tool === 'pen'} onClick={() => { if (tool === 'pen') setTray(tray === 'pen' ? null : 'pen'); else setTool('pen'); }} dot={inkColor(penColor)} />
         <ToolBtn n="eraser" label="Eraser (E)" on={tool === 'eraser'} onClick={() => setTool('eraser')} />
         <ToolBtn n="image" label="Add an image" on={false} onClick={() => fileRef.current?.click()} />
+        {awareness && <ToolBtn n="react" label="React or say something" on={tray === 'react'} onClick={() => setTray(tray === 'react' ? null : 'react')} />}
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) addImage(f); e.target.value = ''; }} />
-      </nav>
+      </nav>}
+      {tray === 'react' && awareness && (
+        <div className="tray react">
+          {['👍', '❤️', '🎉', '😂', '🔥', '👀'].map((em) => <button key={em} className="emoji" onClick={() => { const c = viewCenter(); const cur = (awareness.getLocalState() as { cursor?: Pt } | null)?.cursor; awareness.setLocalStateField('reaction', { e: em, x: cur?.x ?? c.x, y: cur?.y ?? c.y, t: Date.now() }); }}>{em}</button>)}
+          <button className="saybtn" onClick={() => { setTray(null); setChat(''); setChatOpen(true); }}>Say…</button>
+        </div>
+      )}
+      {chatOpen && awareness && (
+        <form className="chatbox" onSubmit={(e) => { e.preventDefault(); awareness.setLocalStateField('chat', { text: chat.trim().slice(0, 120), t: Date.now() }); setChatOpen(false); }}>
+          <input autoFocus value={chat} maxLength={120} onChange={(e) => { setChat(e.target.value); awareness.setLocalStateField('chat', { text: e.target.value.slice(0, 120), t: Date.now() }); }} onKeyDown={(e) => { if (e.key === 'Escape') { setChatOpen(false); awareness.setLocalStateField('chat', null); } }} placeholder="Say something to everyone here" aria-label="Message" />
+          <button type="submit">Send</button>
+        </form>
+      )}
 
       <div className="zoom pill desk">
         <button className="ib" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.25)}><Icon n="minus" size={18} /></button>

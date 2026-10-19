@@ -1,5 +1,35 @@
 import { createRoot } from 'react-dom/client';
-import App from './App';
+import { useRoute, restoreDeepLink, linkProps } from './router';
+import { applyTheme } from './theme';
+import Landing from './pages/Landing';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import BoardPage from './pages/BoardPage';
+import TryPage from './pages/TryPage';
+import { Mark } from './icons';
 import './styles.css';
+import './pages.css';
 
-createRoot(document.getElementById('root')!).render(<App />);
+restoreDeepLink();
+applyTheme();
+
+function Root() {
+  const r = useRoute();
+  switch (r.name) {
+    case 'home': return <Landing />;
+    case 'login': return <Login key={r.mode} mode={r.mode} next={r.next} />;
+    case 'boards': return <Dashboard tab={r.tab} />;
+    case 'board': return <BoardPage key={r.id + (r.k || '')} id={r.id} k={r.k} />;
+    case 'try': return <TryPage />;
+    default: return (
+      <div className="gate">
+        <Mark size={40} />
+        <h1>This page doesn’t exist</h1>
+        <p className="muted">The link may be mistyped, or the page was moved.</p>
+        <a className="btn primary" {...linkProps('/')}>Go to Tessel</a>
+      </div>
+    );
+  }
+}
+
+createRoot(document.getElementById('root')!).render(<Root />);
