@@ -45,7 +45,7 @@ const localMe = (() => {
 })();
 
 export type BoardApi = {
-  fit: (animate?: boolean) => void;
+  fit: (animate?: boolean, only?: string[]) => void;
   say: (t: string) => void;
   follow: (clientId: number | null) => void;
   center: () => { x: number; y: number };
@@ -60,6 +60,8 @@ type BoardProps = {
   top?: React.ReactNode;
   onApi?: (api: BoardApi) => void;
   onFollowChange?: (clientId: number | null) => void;
+  /** return true to take over a tap on a shape (used for voting) */
+  tapOverride?: (s: Shape) => boolean;
   /** drawn on top of the board in screen space, e.g. comment pins */
   overlay?: (cam: Cam, lookup: (id: string) => Shape | undefined) => React.ReactNode;
   /** comment tool tapped the board here (on a shape, if there was one) */
@@ -70,7 +72,8 @@ type BoardProps = {
   viewOnlyBar?: React.ReactNode;
 };
 
-export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar, onAi, overlay, onCommentAt }: BoardProps) {
+export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar, onAi, overlay, onCommentAt, tapOverride }: BoardProps) {
+  const tapRef = useRef(tapOverride); tapRef.current = tapOverride;
   const [aiOpen, setAiOpen] = useState(false);
   const shapes = useShapes();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -284,6 +287,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
 
     switch (t) {
       case 'select': {
+        if (hitId && tapRef.current) { const hs = shapeById(hitId); if (hs && tapRef.current(hs)) return; }
         if (hitId) {
           let next = selRef.current;
           if (e.shiftKey) next = next.includes(hitId) ? next.filter((x) => x !== hitId) : [...next, hitId];

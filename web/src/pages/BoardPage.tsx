@@ -7,6 +7,7 @@ import { BoardConnection, type Status } from '../sync';
 import { Avatars, usePeers } from '../presence';
 import { CommentLayer, CommentsList, pinPos, useComments, type Draft, type Person } from '../comments';
 import { shapeById } from '../store';
+import { PresentBar, TimerPicker, TimerPill, VoteBar, VoteMarks, slides, timer, useMeta, useVotes, voting, type TimerState, type VoteState } from '../session';
 import { go, href, linkProps } from '../router';
 import Icon, { Mark } from '../icons';
 import { Avatar, Popover, Sheet, Spinner, ThemeSwitch, copyText } from '../ui';
@@ -22,7 +23,10 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
   const [role, setRole] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [title, setTitle] = useState('');
-  const [panel, setPanel] = useState<null | 'share' | 'versions' | 'comments'>(null);
+  const [panel, setPanel] = useState<null | 'share' | 'versions' | 'comments' | 'timer' | 'vote'>(null);
+  const [votesPer, setVotesPer] = useState(3);
+  const [presenting, setPresenting] = useState<number | null>(null);
+  const [followPresenter, setFollowPresenter] = useState(true);
   const [openThread, setOpenThread] = useState<string | null>(() => new URLSearchParams(location.search).get('c'));
   const [draft, setDraft] = useState<Draft | null>(null);
   const [showResolved, setShowResolved] = useState(false);
@@ -41,6 +45,33 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
   })();
   const me: Person | null = user ? { id: user.id, name: user.name, color: user.color } : null;
   const openCount = comments.threads.filter((t) => !t.resolved).length;
+  const timerState = useMeta<TimerState>('timer', conn);
+  const voteState = useMeta<VoteState>('vote', conn);
+  const votes = useVotes(conn);
+  const now = () => conn?.now() ?? Date.now();
+  const voterId = user?.id || '';
+
+  // presenting: walk through frames; everyone following sees the same frame
+  const deck = presenting !== null ? slides() : [];
+  const presenter = peers.find((p) => !!conn?.awareness.getStates().get(p.clientId)?.presenting);
+  const remoteSlide = presenter ? (conn?.awareness.getStates().get(presenter.clientId)?.presenting as { frameId: string } | undefined)?.frameId : undefined;
+  useEffect(() => {
+    if (!conn) return;
+    conn.awareness.setLocalStateField('presenting', presenting !== null && deck[presenting] ? { frameId: deck[presenting].id } : null);
+    if (presenting !== null && deck[presenting]) boardApi.current?.fit(true, [deck[presenting].id]);
+  }, [presenting, conn]);
+  useEffect(() => { if (remoteSlide && followPresenter && presenting === null) boardApi.current?.fit(true, [remoteSlide]); }, [remoteSlide, followPresenter, presenting]);
+  useEffect(() => {
+    if (presenting === null) return;
+    const k = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).tagName === 'INPUT') return;
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); setPresenting((i) => Math.min(slides().length - 1, (i ?? 0) + 1)); }
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); setPresenting((i) => Math.max(0, (i ?? 0) - 1)); }
+      if (e.key === 'Escape') setPresenting(null);
+    };
+    window.addEventListener('keydown', k, true);
+    return () => window.removeEventListener('keydown', k, true);
+  }, [presenting]);
   const { canUndo, canRedo } = useUndoState(conn);
 
   // load the board's details; joining through a share link adds it to your dashboard
@@ -138,6 +169,9 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
           <button className="ib" data-pop-trigger aria-label="Board menu" onClick={() => setMenu((m) => !m)}><Icon n="more" size={20} /></button>
           <Popover open={menu} onClose={() => setMenu(false)}>
             <button onClick={() => { boardApi.current?.fit(true); setMenu(false); }}><Icon n="fit" size={18} />Fit board to screen</button>
+            {canEdit && <button onClick={() => { setPanel('timer'); setMenu(false); }}><Icon n="timer" size={18} />{timerState ? 'Change the timer' : 'Start a timer'}</button>}
+            {canEdit && user && !voteState && <button onClick={() => { setPanel('vote'); setMenu(false); }}><Icon n="vote" size={18} />Start voting</button>}
+            <button onClick={() => { setMenu(false); if (!slides().length) boardApi.current?.say('Add frames to present. Each frame becomes a slide.'); else setPresenting(0); }}><Icon n="present" size={18} />Present frames</button>
             {info && user && <button onClick={() => { setPanel('comments'); setMenu(false); }}><Icon n="comment" size={18} />Comments{openCount ? ` (${openCount})` : ''}</button>}
             {info && <button onClick={() => { setPanel('versions'); setMenu(false); }}><Icon n="history" size={18} />Version history</button>}
             {auth.signedIn() && info && <button onClick={async () => { setMenu(false); try { const r = await api<{ board: BoardInfo }>(`/api/boards/${id}/duplicate${k ? `?k=${k}` : ''}`, { method: 'POST' }); go(`/b/${r.board.id}`); } catch (e) { boardApi.current?.say(e instanceof ApiError ? e.message : 'Could not duplicate.'); } }}><Icon n="copy" size={18} />Make a copy</button>}
@@ -153,10 +187,30 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
     <div className="board-page">
       <Board awareness={conn?.awareness} readOnly={!canEdit && !!(role || info)} loaded={loaded} top={top} onApi={(a) => { boardApi.current = a; }} onFollowChange={setFollowing}
         onAi={canEdit && user ? async (r) => api<{ ids: string[]; message: string }>(`/api/boards/${id}/ai${k ? `?k=${encodeURIComponent(k)}` : ''}`, { method: 'POST', body: r }) : undefined}
-        overlay={user && info ? (cam, lookup) => <CommentLayer threads={comments.threads} cam={cam} lookup={lookup} openId={openThread} setOpenId={setOpenThread} draft={draft} setDraft={setDraft} people={people} me={me} canModerate={canEdit} api={comments} showResolved={showResolved} /> : undefined}
+        tapOverride={voteState?.active ? (sh) => {
+          if (sh.type !== 'sticky') return false;
+          if (!canEdit || !voterId) { boardApi.current?.say('Only people who can edit the board can vote.'); return true; }
+          if (!voting.toggle(voterId, sh.id, voteState.per)) boardApi.current?.say(`You’ve used all ${voteState.per} votes. Tap a voted note to take one back.`);
+          return true;
+        } : undefined}
+        overlay={user && info ? (cam, lookup) => <>{voteState && <VoteMarks cam={cam} lookup={lookup} votes={votes} me={voterId} state={voteState} />}<CommentLayer threads={comments.threads} cam={cam} lookup={lookup} openId={openThread} setOpenId={setOpenThread} draft={draft} setDraft={setDraft} people={people} me={me} canModerate={canEdit} api={comments} showResolved={showResolved} /></> : undefined}
         onCommentAt={user && info ? (p, shape) => { setOpenThread(null); setDraft(shape ? { x: p.x, y: p.y, shapeId: shape.id, ox: p.x - shape.x, oy: p.y - shape.y } : { x: p.x, y: p.y, shapeId: null, ox: 0, oy: 0 }); } : undefined}
         viewOnlyBar={<ViewOnlyBar signedIn={!!user} linkEdit={info?.linkAccess === 'edit'} next={`/b/${id}${k ? `?k=${k}` : ''}`} onComment={() => boardApi.current?.startComment()} />} />
       {!loaded && <div className="board-loading"><Spinner label="Opening board" /><p>{status === 'connecting' ? 'Opening the board… a sleeping server can take up to a minute to wake.' : 'Opening the board…'}</p></div>}
+      {timerState && <TimerPill t={timerState} now={now} canEdit={canEdit} />}
+      {voteState && presenting === null && <VoteBar state={voteState} votes={votes} me={voterId} isHost={voteState.byId === voterId || isOwner} onFocus={(sid) => boardApi.current?.fit(true, [sid])} />}
+      {presenting !== null && deck.length > 0 && <PresentBar index={presenting} total={deck.length} title={deck[presenting]?.text || ''} onPrev={() => setPresenting((i) => Math.max(0, (i ?? 0) - 1))} onNext={() => setPresenting((i) => Math.min(deck.length - 1, (i ?? 0) + 1))} onStop={() => setPresenting(null)} />}
+      {presenter && presenting === null && <div className="presenting-note" role="status" style={{ ['--c' as string]: presenter.color }}><span>{presenter.name} is presenting</span><button onClick={() => { setFollowPresenter((f) => !f); if (!followPresenter && remoteSlide) boardApi.current?.fit(true, [remoteSlide]); }}>{followPresenter ? 'Stop following' : 'Follow'}</button></div>}
+      {panel === 'timer' && <Sheet title="Timer" onClose={() => setPanel(null)}><TimerPicker onPick={(m) => { timer.start(m, user?.name || 'Someone', now()); setPanel(null); }} />{timerState && <button className="btn" onClick={() => { timer.stop(); setPanel(null); }}>Stop the current timer</button>}</Sheet>}
+      {panel === 'vote' && <Sheet title="Start voting" onClose={() => setPanel(null)}>
+        <p className="muted small">Everyone who can edit gets the same number of votes to put on sticky notes. Votes stay hidden until you show the results.</p>
+        <div className="stepper big" role="group" aria-label="Votes per person">
+          <button className="fmt-btn sq" onClick={() => setVotesPer((v) => Math.max(1, v - 1))} aria-label="Fewer votes"><Icon n="minus" size={18} /></button>
+          <b>{votesPer} {votesPer === 1 ? 'vote' : 'votes'} each</b>
+          <button className="fmt-btn sq" onClick={() => setVotesPer((v) => Math.min(10, v + 1))} aria-label="More votes"><Icon n="plus" size={18} /></button>
+        </div>
+        <button className="btn primary block" onClick={() => { voting.start(votesPer, user?.name || 'Someone', voterId); setPanel(null); }}>Start voting</button>
+      </Sheet>}
       {status === 'offline' && loaded && <div className="offline-pill" role="status">Offline · your changes are saved on this device</div>}
       {panel === 'share' && info && <ShareSheet info={info} isOwner={isOwner} canEdit={canEdit} onChange={setInfo} onClose={() => setPanel(null)} />}
       {panel === 'comments' && <Sheet title="Comments" onClose={() => setPanel(null)}>
