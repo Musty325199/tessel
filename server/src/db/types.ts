@@ -51,8 +51,10 @@ export interface Comment {
   _id: string;
   boardId: string;
   x: number; y: number;
+  /** pinned to a shape: the pin follows it, offset by (ox, oy) */
+  shapeId: string | null; ox: number; oy: number;
   resolved: boolean;
-  messages: { id: string; userId: string; text: string; createdAt: Date }[];
+  messages: { id: string; userId: string; text: string; mentions: string[]; createdAt: Date; editedAt?: Date }[];
   createdAt: Date;
   updatedAt: Date;
 }

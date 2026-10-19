@@ -15,7 +15,7 @@ import type { Box, Cam } from './geometry';
 import Icon from './icons';
 import { FILLS, INKS, PEOPLE, STICKY, inkColor } from './palette';
 
-type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'rect' | 'ellipse' | 'diamond' | 'frame' | 'arrow' | 'pen' | 'eraser';
+type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'rect' | 'ellipse' | 'diamond' | 'frame' | 'arrow' | 'pen' | 'eraser' | 'comment';
 type Pt = { x: number; y: number };
 type Gesture =
   | { kind: 'pan'; start: Pt; cam: Cam; moved: boolean; clearOnTap?: boolean }
@@ -24,7 +24,7 @@ type Gesture =
   | { kind: 'resize'; id: string; handle: string; start: Pt; box: Box; ratio: number }
   | { kind: 'arrowEnd'; id: string; which: 'from' | 'to' }
   | { kind: 'marquee'; start: Pt; base: string[] }
-  | { kind: 'place'; screen: Pt; world: Pt; tool: 'sticky' | 'text' }
+  | { kind: 'place'; screen: Pt; world: Pt; tool: 'sticky' | 'text' | 'comment'; hit?: string }
   | { kind: 'create'; id: string; start: Pt }
   | { kind: 'arrow'; id: string; start: Pt }
   | { kind: 'pen'; id: string; abs: number[] }
@@ -49,6 +49,8 @@ export type BoardApi = {
   say: (t: string) => void;
   follow: (clientId: number | null) => void;
   center: () => { x: number; y: number };
+  panTo: (x: number, y: number) => void;
+  startComment: () => void;
 };
 type BoardProps = {
   awareness?: Awareness | null;
@@ -58,13 +60,17 @@ type BoardProps = {
   top?: React.ReactNode;
   onApi?: (api: BoardApi) => void;
   onFollowChange?: (clientId: number | null) => void;
+  /** drawn on top of the board in screen space, e.g. comment pins */
+  overlay?: (cam: Cam, lookup: (id: string) => Shape | undefined) => React.ReactNode;
+  /** comment tool tapped the board here (on a shape, if there was one) */
+  onCommentAt?: (p: { x: number; y: number }, shape: Shape | null) => void;
   /** runs an AI action on the server; the board shows the result when it syncs */
   onAi?: (r: AiRequest) => Promise<AiResult>;
   /** what to show instead of the toolbar when the board is view only */
   viewOnlyBar?: React.ReactNode;
 };
 
-export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar, onAi }: BoardProps) {
+export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar, onAi, overlay, onCommentAt }: BoardProps) {
   const [aiOpen, setAiOpen] = useState(false);
   const shapes = useShapes();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -181,6 +187,8 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
       fit, say,
       follow: (c) => { setFollowing(c); if (c !== null) { const p = peers.find((x) => x.clientId === c); if (p) say(`Following ${p.name}. Move the board to stop.`); } },
       center: () => viewCenter(),
+      startComment: () => { setTool('comment'); say('Tap where you want to leave a comment.'); },
+      panTo: (x, y) => { const el = rootRef.current; if (!el) return; const c = camRef.current; setCam({ ...c, x: el.clientWidth / 2 - x * c.z, y: el.clientHeight * 0.4 - y * c.z }); },
     });
   });
 
@@ -253,6 +261,10 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
     undo.stopCapturing();
 
     const t = toolRef.current;
+    if (readOnlyRef.current && t === 'comment') {
+      gesture.current = { kind: 'place', screen: { x: e.clientX, y: e.clientY }, world: w, tool: 'comment', hit: hitId };
+      return;
+    }
     if (readOnlyRef.current) {
       if (e.pointerType !== 'touch' && hitId) { setSel([hitId]); return; }
       gesture.current = { kind: 'pan', start: { x: e.clientX, y: e.clientY }, cam: camRef.current, moved: false, clearOnTap: true };
@@ -296,8 +308,8 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
         }
         return;
       }
-      case 'sticky': case 'text':
-        gesture.current = { kind: 'place', screen: { x: e.clientX, y: e.clientY }, world: w, tool: t };
+      case 'sticky': case 'text': case 'comment':
+        gesture.current = { kind: 'place', screen: { x: e.clientX, y: e.clientY }, world: w, tool: t, hit: hitId };
         return;
       case 'rect': case 'ellipse': case 'diamond': case 'frame': {
         const id = createShape({ type: t, x: w.x, y: w.y, w: 1, h: 1, color: t === 'frame' ? undefined : '#FFFFFF', text: t === 'frame' ? 'Frame' : '' });
@@ -457,7 +469,10 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
         break;
       }
       case 'place': {
-        if (g.tool === 'sticky') {
+        if (g.tool === 'comment') {
+          setTool('select');
+          onCommentAt?.(g.world, g.hit ? shapeById(g.hit) ?? null : null);
+        } else if (g.tool === 'sticky') {
           const id = createShape({ type: 'sticky', x: g.world.x - 90, y: g.world.y - 85, w: 180, h: 170, text: '', color: stickyColor });
           setTool('select'); startEdit(id);
         } else {
@@ -502,6 +517,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   useEffect(() => {
     const el = rootRef.current!;
     const onWheel = (e: WheelEvent) => {
+      if ((e.target as Element).closest?.('[data-ui]')) return; // let comment threads scroll
       e.preventDefault();
       if (followRef.current !== null) setFollowing(null);
       const r = el.getBoundingClientRect();
@@ -573,7 +589,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
 
   // ---- keyboard
   useEffect(() => {
-    const keys: Record<string, Tool> = { v: 'select', h: 'hand', s: 'sticky', t: 'text', r: 'rect', o: 'ellipse', d: 'diamond', f: 'frame', a: 'arrow', p: 'pen', e: 'eraser' };
+    const keys: Record<string, Tool> = { c: 'comment', v: 'select', h: 'hand', s: 'sticky', t: 'text', r: 'rect', o: 'ellipse', d: 'diamond', f: 'frame', a: 'arrow', p: 'pen', e: 'eraser' };
     const down = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'TEXTAREA' || tag === 'INPUT') return;
@@ -613,7 +629,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   const types = new Set(selShapes.map((s) => s.type));
   const only = (...t: string[]) => selShapes.length > 0 && Array.from(types).every((x) => t.includes(x));
 
-  const cursor = space || tool === 'hand' ? (gesture.current?.kind === 'pan' ? 'grabbing' : 'grab') : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair';
+  const cursor = space || tool === 'hand' ? (gesture.current?.kind === 'pan' ? 'grabbing' : 'grab') : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : tool === 'comment' ? 'copy' : 'crosshair';
 
   return (
     <div className={'app' + (embedded ? ' embedded' : '') + (readOnly ? ' readonly' : '')}>
@@ -660,6 +676,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
         })()}
         {marquee && <div className="marquee" style={{ ...toScreen(marquee), ['--me' as string]: me.color }} />}
         {awareness && <RemoteSelections peers={peers} cam={cam} lookup={lookup} />}
+        {overlay?.(cam, lookup)}
         {awareness && <Reactions peers={peers} cam={cam} />}
         {awareness && <Cursors peers={peers} cam={cam} />}
       </div>
@@ -725,7 +742,8 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
         <ToolBtn n="eraser" label="Eraser (E)" on={tool === 'eraser'} onClick={() => setTool('eraser')} className="desk" />
         <ToolBtn n="image" label="Add an image" on={false} onClick={() => fileRef.current?.click()} className="desk" />
         {awareness && <ToolBtn n="react" label="React or say something" on={tray === 'react'} onClick={() => setTray(tray === 'react' ? null : 'react')} className="desk" />}
-        <ToolBtn n="more" label="More tools" on={tray === 'more' || tool === 'eraser'} onClick={() => setTray(tray === 'more' ? null : 'more')} className="mob" />
+        {onCommentAt && <ToolBtn n="comment" label="Comment (C)" on={tool === 'comment'} onClick={() => setTool(tool === 'comment' ? 'select' : 'comment')} className="desk" />}
+        <ToolBtn n="more" label="More tools" on={tray === 'more' || tool === 'eraser' || tool === 'comment'} onClick={() => setTray(tray === 'more' ? null : 'more')} className="mob" />
         {onAi && <ToolBtn n="sparkle" label="AI" on={aiOpen} onClick={() => { setTray(null); setAiOpen((o) => !o); }} className="ai-tool" />}
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) addImage(f); e.target.value = ''; }} />
       </nav>}
@@ -749,6 +767,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
           <button className={'tool' + (tool === 'eraser' ? ' on' : '')} aria-label="Eraser" onClick={() => setTool('eraser')}><Icon n="eraser" /></button>
           <button className="tool" aria-label="Add an image" onClick={() => { setTray(null); fileRef.current?.click(); }}><Icon n="image" /></button>
           {awareness && <button className="tool" aria-label="React or say something" onClick={() => setTray('react')}><Icon n="react" /></button>}
+          {onCommentAt && <button className={'tool' + (tool === 'comment' ? ' on' : '')} aria-label="Comment" onClick={() => setTool('comment')}><Icon n="comment" /></button>}
           {!awareness && <button className="tool" aria-label="Hand tool" onClick={() => setTool('hand')}><Icon n="hand" /></button>}
         </div>
       )}

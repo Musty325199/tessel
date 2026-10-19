@@ -14,7 +14,7 @@ export const config = {
   jwtSecret: env.JWT_SECRET || 'dev-only-secret-change-me-dev-only-secret',
   // comma separated list of sites allowed to call the API, e.g. https://musty325199.github.io
   origins: (env.CLIENT_ORIGIN || 'http://localhost:5173,http://localhost:4400').split(',').map((s) => s.trim()).filter(Boolean),
-  appUrl: env.APP_URL || 'http://localhost:5173',
+  appUrl: (env.APP_URL || (env.NODE_ENV === 'production' ? 'https://musty325199.github.io/tessel' : 'http://localhost:5173')).replace(/\/$/, ''),
   geminiKey: env.GEMINI_API_KEY || '',
   geminiModel: env.GEMINI_MODEL || 'gemini-2.5-flash',
   resendKey: env.RESEND_API_KEY || '',

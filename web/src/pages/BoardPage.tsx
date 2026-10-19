@@ -5,6 +5,8 @@ import { api, auth, ago, freshToken, useUser, ApiError, WS_URL, type BoardInfo, 
 import { metaMap, newDoc, openLocalBoard, undo, useUndoState, doc as currentDoc } from '../store';
 import { BoardConnection, type Status } from '../sync';
 import { Avatars, usePeers } from '../presence';
+import { CommentLayer, CommentsList, pinPos, useComments, type Draft, type Person } from '../comments';
+import { shapeById } from '../store';
 import { go, href, linkProps } from '../router';
 import Icon, { Mark } from '../icons';
 import { Avatar, Popover, Sheet, Spinner, ThemeSwitch, copyText } from '../ui';
@@ -20,12 +22,25 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
   const [role, setRole] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [title, setTitle] = useState('');
-  const [panel, setPanel] = useState<null | 'share' | 'versions'>(null);
+  const [panel, setPanel] = useState<null | 'share' | 'versions' | 'comments'>(null);
+  const [openThread, setOpenThread] = useState<string | null>(() => new URLSearchParams(location.search).get('c'));
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
   const [menu, setMenu] = useState(false);
   const [following, setFollowing] = useState<number | null>(null);
   const boardApi = useRef<BoardApi | null>(null);
   useLock();
   const peers = usePeers(conn?.awareness ?? null);
+  const comments = useComments(id, k, conn, !!user && !!info);
+  // everyone who can be @mentioned: the owner, members, and anyone who just joined through the link
+  const people: Person[] = (() => {
+    const map = new Map<string, Person>();
+    if (info) [info.owner, ...info.members].forEach((p) => map.set(p.id, { id: p.id, name: p.name, color: p.color }));
+    peers.forEach((p) => { if (p.id && !map.has(p.id)) map.set(p.id, { id: p.id, name: p.name, color: p.color }); });
+    return Array.from(map.values());
+  })();
+  const me: Person | null = user ? { id: user.id, name: user.name, color: user.color } : null;
+  const openCount = comments.threads.filter((t) => !t.resolved).length;
   const { canUndo, canRedo } = useUndoState(conn);
 
   // load the board's details; joining through a share link adds it to your dashboard
@@ -44,6 +59,10 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
     }
   }, [id, k]);
   useEffect(() => { loadInfo(); }, [loadInfo]);
+  // a new face on the board means the member list changed: refresh it
+  const knownIds = info ? new Set([info.owner.id, ...info.members.map((m) => m.id)]) : null;
+  const unknownPeer = peers.some((p) => p.id && knownIds && !knownIds.has(p.id));
+  useEffect(() => { if (unknownPeer) loadInfo(); }, [unknownPeer, loadInfo]);
 
   // open the doc: first the copy saved on this device, then live sync with the server
   useEffect(() => {
@@ -119,6 +138,7 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
           <button className="ib" data-pop-trigger aria-label="Board menu" onClick={() => setMenu((m) => !m)}><Icon n="more" size={20} /></button>
           <Popover open={menu} onClose={() => setMenu(false)}>
             <button onClick={() => { boardApi.current?.fit(true); setMenu(false); }}><Icon n="fit" size={18} />Fit board to screen</button>
+            {info && user && <button onClick={() => { setPanel('comments'); setMenu(false); }}><Icon n="comment" size={18} />Comments{openCount ? ` (${openCount})` : ''}</button>}
             {info && <button onClick={() => { setPanel('versions'); setMenu(false); }}><Icon n="history" size={18} />Version history</button>}
             {auth.signedIn() && info && <button onClick={async () => { setMenu(false); try { const r = await api<{ board: BoardInfo }>(`/api/boards/${id}/duplicate${k ? `?k=${k}` : ''}`, { method: 'POST' }); go(`/b/${r.board.id}`); } catch (e) { boardApi.current?.say(e instanceof ApiError ? e.message : 'Could not duplicate.'); } }}><Icon n="copy" size={18} />Make a copy</button>}
             <ThemeSwitch />
@@ -133,10 +153,15 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
     <div className="board-page">
       <Board awareness={conn?.awareness} readOnly={!canEdit && !!(role || info)} loaded={loaded} top={top} onApi={(a) => { boardApi.current = a; }} onFollowChange={setFollowing}
         onAi={canEdit && user ? async (r) => api<{ ids: string[]; message: string }>(`/api/boards/${id}/ai${k ? `?k=${encodeURIComponent(k)}` : ''}`, { method: 'POST', body: r }) : undefined}
-        viewOnlyBar={<ViewOnlyBar signedIn={!!user} linkEdit={info?.linkAccess === 'edit'} next={`/b/${id}${k ? `?k=${k}` : ''}`} />} />
+        overlay={user && info ? (cam, lookup) => <CommentLayer threads={comments.threads} cam={cam} lookup={lookup} openId={openThread} setOpenId={setOpenThread} draft={draft} setDraft={setDraft} people={people} me={me} canModerate={canEdit} api={comments} showResolved={showResolved} /> : undefined}
+        onCommentAt={user && info ? (p, shape) => { setOpenThread(null); setDraft(shape ? { x: p.x, y: p.y, shapeId: shape.id, ox: p.x - shape.x, oy: p.y - shape.y } : { x: p.x, y: p.y, shapeId: null, ox: 0, oy: 0 }); } : undefined}
+        viewOnlyBar={<ViewOnlyBar signedIn={!!user} linkEdit={info?.linkAccess === 'edit'} next={`/b/${id}${k ? `?k=${k}` : ''}`} onComment={() => boardApi.current?.startComment()} />} />
       {!loaded && <div className="board-loading"><Spinner label="Opening board" /><p>{status === 'connecting' ? 'Opening the board… a sleeping server can take up to a minute to wake.' : 'Opening the board…'}</p></div>}
       {status === 'offline' && loaded && <div className="offline-pill" role="status">Offline · your changes are saved on this device</div>}
       {panel === 'share' && info && <ShareSheet info={info} isOwner={isOwner} canEdit={canEdit} onChange={setInfo} onClose={() => setPanel(null)} />}
+      {panel === 'comments' && <Sheet title="Comments" onClose={() => setPanel(null)}>
+        <CommentsList threads={comments.threads} showResolved={showResolved} setShowResolved={setShowResolved} onPick={(t) => { setPanel(null); setDraft(null); setOpenThread(t.id); const p = pinPos(t, shapeById); boardApi.current?.panTo(p.x, p.y); }} />
+      </Sheet>}
       {panel === 'versions' && info && <VersionsPanel id={id} k={k} canEdit={canEdit} onClose={() => setPanel(null)} onRestored={() => boardApi.current?.say('Version restored for everyone.')} />}
     </div>
   );
@@ -263,9 +288,9 @@ function VersionsPanel({ id, k, canEdit, onClose, onRestored }: { id: string; k:
 }
 
 /** Tells view-only visitors why they can't edit, and how to change that. */
-function ViewOnlyBar({ signedIn, linkEdit, next }: { signedIn: boolean; linkEdit: boolean; next: string }) {
+function ViewOnlyBar({ signedIn, linkEdit, next, onComment }: { signedIn: boolean; linkEdit: boolean; next: string; onComment: () => void }) {
   const q = `?next=${encodeURIComponent(next)}`;
-  if (signedIn) return <div className="viewonly pill">View only. Ask the owner if you need to edit.</div>;
+  if (signedIn) return <div className="viewonly pill cta"><span>View only. You can still leave comments.</span><button className="btn" onClick={onComment}><Icon n="comment" size={17} />Comment</button></div>;
   return (
     <div className="viewonly pill cta">
       <span>{linkEdit ? 'You can view this board. Sign in to edit.' : 'You can view this board. Sign in to save it to your boards.'}</span>

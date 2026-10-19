@@ -10,6 +10,7 @@ export type Role = 'owner' | 'editor' | 'viewer';
 
 type Hello = () => Promise<{ token?: string; k?: string; name?: string }>;
 type Events = { status?: (s: Status, detail?: string) => void; role?: (r: Role) => void; synced?: () => void; expired?: () => void };
+type Listener = (m: { type: string; [k: string]: unknown }) => void;
 
 /**
  * Keeps one board's doc and presence in sync with the server over a WebSocket.
@@ -65,8 +66,17 @@ export class BoardConnection {
     };
   }
 
-  private onControl(m: { type: string; role?: Role; reason?: string }) {
+  /** server clock minus ours, so shared timers end at the same moment on every device */
+  clockOffset = 0;
+  private listeners = new Set<Listener>();
+  /** Listen for board events that live outside the doc, like "comments changed". */
+  listen(f: Listener) { this.listeners.add(f); return () => { this.listeners.delete(f); }; }
+  now() { return Date.now() + this.clockOffset; }
+
+  private onControl(m: { type: string; role?: Role; reason?: string; now?: number }) {
+    this.listeners.forEach((f) => f(m));
     if (m.type === 'ready') {
+      if (typeof m.now === 'number') this.clockOffset = m.now - Date.now();
       this.tries = 0;
       this.role = m.role!;
       this.on.role?.(m.role!);

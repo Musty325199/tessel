@@ -7,6 +7,7 @@ import { authRoutes, readUser, requireUser } from './auth.js';
 import { boardRoutes } from './boards.js';
 import { Rooms } from './realtime.js';
 import { aiRoutes, gemini, type AiModel } from './ai.js';
+import { commentRoutes } from './comments.js';
 import { config } from './config.js';
 import { errorHandler, parse, route } from './util.js';
 
@@ -26,6 +27,7 @@ export function createApp(db: Store, opts: { ai?: AiModel } = {}) {
   app.use('/api/auth', authRoutes(db));
   app.use('/api', boardRoutes(db, rooms));
   app.use('/api', aiRoutes(db, rooms, opts.ai ?? gemini));
+  app.use('/api', commentRoutes(db, rooms));
 
   app.get('/api/notifications', requireUser, route(async (req, res) => {
     const list = await db.notifications.list(req.user!.id, 50);

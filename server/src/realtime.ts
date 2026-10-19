@@ -196,7 +196,7 @@ export class Rooms {
           awarenessProtocol.removeAwarenessStates(room.awareness, Array.from(conn.ids), null);
           if (!room.conns.size) this.scheduleClose(room);
         });
-        sendJson(ws, { type: 'ready', role, user: user ? { id: user.id, name: user.name, color: user.color } : null });
+        sendJson(ws, { type: 'ready', role, now: Date.now(), user: user ? { id: user.id, name: user.name, color: user.color } : null });
         // start syncing: send our state vector and everyone's presence
         const enc = encoding.createEncoder();
         encoding.writeVarUint(enc, MSG_SYNC);
@@ -235,6 +235,14 @@ export class Rooms {
     } catch (e) {
       console.error('bad message', room.id, e);
     }
+  }
+
+  /** Tell everyone on a board that something outside the doc changed (e.g. comments), so they refresh it. */
+  async notify(boardId: string, payload: object) {
+    const p = this.rooms.get(boardId); if (!p) return;
+    const room = await p;
+    const msg = JSON.stringify(payload);
+    room.conns.forEach((c) => send(c.ws, msg));
   }
 
   async flushAll() {
