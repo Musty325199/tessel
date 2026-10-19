@@ -342,3 +342,4 @@ a.share { text-decoration: none; }
 }
 a.textbtn { text-decoration: none; }
 @media (max-width: 640px) { .app.readonly .fitbtn { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 150px); } }
+@media (max-width: 640px) { .viewonly.cta span { white-space: normal; text-wrap: balance; font-size: 14.5px; } }
