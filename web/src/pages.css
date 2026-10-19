@@ -330,3 +330,15 @@ a.share { text-decoration: none; }
   /* a soft edge hints that the formatting bar scrolls sideways */
   .stylebar .fmt { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); padding-right: 18px; }
 }
+
+.viewonly.cta { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; color: var(--ink); white-space: nowrap; }
+.viewonly.cta .btn { height: 38px; padding: 0 14px; font-size: 14px; }
+.viewonly.cta .textbtn { font-size: 14px; padding-right: 8px; }
+@media (max-width: 640px) {
+  .viewonly { width: calc(100vw - 24px); text-align: center; white-space: normal; }
+  .viewonly.cta { flex-wrap: wrap; justify-content: center; padding: 12px; gap: 8px 12px; }
+  .viewonly.cta span { flex-basis: 100%; }
+  .viewonly.cta .btn { flex: 1; }
+}
+a.textbtn { text-decoration: none; }
+@media (max-width: 640px) { .app.readonly .fitbtn { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 150px); } }

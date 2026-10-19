@@ -131,7 +131,8 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
 
   return (
     <div className="board-page">
-      <Board awareness={conn?.awareness} readOnly={!canEdit && !!(role || info)} loaded={loaded} top={top} onApi={(a) => { boardApi.current = a; }} onFollowChange={setFollowing} />
+      <Board awareness={conn?.awareness} readOnly={!canEdit && !!(role || info)} loaded={loaded} top={top} onApi={(a) => { boardApi.current = a; }} onFollowChange={setFollowing}
+        viewOnlyBar={<ViewOnlyBar signedIn={!!user} linkEdit={info?.linkAccess === 'edit'} next={`/b/${id}${k ? `?k=${k}` : ''}`} />} />
       {!loaded && <div className="board-loading"><Spinner label="Opening board" /><p>{status === 'connecting' ? 'Opening the board… a sleeping server can take up to a minute to wake.' : 'Opening the board…'}</p></div>}
       {status === 'offline' && loaded && <div className="offline-pill" role="status">Offline · your changes are saved on this device</div>}
       {panel === 'share' && info && <ShareSheet info={info} isOwner={isOwner} canEdit={canEdit} onChange={setInfo} onClose={() => setPanel(null)} />}
@@ -257,5 +258,18 @@ function VersionsPanel({ id, k, canEdit, onClose, onRestored }: { id: string; k:
         ))}
       </ul>
     </Sheet>
+  );
+}
+
+/** Tells view-only visitors why they can't edit, and how to change that. */
+function ViewOnlyBar({ signedIn, linkEdit, next }: { signedIn: boolean; linkEdit: boolean; next: string }) {
+  const q = `?next=${encodeURIComponent(next)}`;
+  if (signedIn) return <div className="viewonly pill">View only. Ask the owner if you need to edit.</div>;
+  return (
+    <div className="viewonly pill cta">
+      <span>{linkEdit ? 'You can view this board. Sign in to edit.' : 'You can view this board. Sign in to save it to your boards.'}</span>
+      <a className="btn primary" {...linkProps(`/login${q}`)}>{linkEdit ? 'Sign in to edit' : 'Sign in'}</a>
+      <a className="textbtn" {...linkProps(`/signup${q}`)}>Create account</a>
+    </div>
   );
 }

@@ -57,9 +57,11 @@ type BoardProps = {
   top?: React.ReactNode;
   onApi?: (api: BoardApi) => void;
   onFollowChange?: (clientId: number | null) => void;
+  /** what to show instead of the toolbar when the board is view only */
+  viewOnlyBar?: React.ReactNode;
 };
 
-export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange }: BoardProps) {
+export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar }: BoardProps) {
   const shapes = useShapes();
   const rootRef = useRef<HTMLDivElement>(null);
   const [cam, setCamState] = useState<Cam>({ x: 0, y: 0, z: 1 });
@@ -707,7 +709,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
       )}
 
       {/* ---- toolbar */}
-      {readOnly ? <div className="viewonly pill">View only</div> : <nav className="toolbar" aria-label="Tools">
+      {readOnly ? (viewOnlyBar ?? <div className="viewonly pill">View only</div>) : <nav className="toolbar" aria-label="Tools">
         <ToolBtn n="select" label="Select (V)" on={tool === 'select'} onClick={() => setTool('select')} />
         <ToolBtn n="hand" label="Move around (H)" on={tool === 'hand'} onClick={() => setTool('hand')} className="desk" />
         <ToolBtn n="sticky" label="Sticky note (S)" on={tool === 'sticky'} onClick={() => { if (tool === 'sticky') setTray(tray === 'sticky' ? null : 'sticky'); else setTool('sticky'); }} dot={stickyColor} />
