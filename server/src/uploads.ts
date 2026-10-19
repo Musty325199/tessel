@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { createHash } from 'node:crypto';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { requireUser } from './auth.js';
 import { fail, route } from './util.js';
 
@@ -22,7 +22,7 @@ export function sign(params: Record<string, string | number>, secret: string) {
  */
 export function uploadRoutes() {
   const r = Router();
-  const limiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 120, keyGenerator: (req) => req.user?.id || req.ip || 'anon', message: { error: 'Too many uploads in a short time. Try again later.', code: 'rate_limited' } });
+  const limiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 120, keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip || ''), message: { error: 'Too many uploads in a short time. Try again later.', code: 'rate_limited' } });
   r.get('/uploads/status', (_req, res) => { res.json({ enabled: !!cloudinaryConfig() }); });
   r.post('/uploads/sign', requireUser, limiter, route(async (req, res) => {
     const c = cloudinaryConfig();

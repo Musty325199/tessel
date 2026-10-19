@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import type { Store } from './db/types.js';
 import { requireUser } from './auth.js';
@@ -209,7 +209,7 @@ export function aiRoutes(db: Store, rooms: Rooms, model: AiModel = gemini) {
   const r = Router();
   const limiter = rateLimit({
     windowMs: 10 * 60 * 1000, limit: 25, standardHeaders: 'draft-7', legacyHeaders: false,
-    keyGenerator: (req) => req.user?.id || req.ip || 'anon',
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip || ''),
     message: { error: 'That’s a lot of AI requests. Wait a few minutes, then try again.', code: 'rate_limited' },
   });
 

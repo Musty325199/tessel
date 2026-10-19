@@ -13,7 +13,7 @@
   --danger: #D93A2E;
   --lift: 0 1px 2px rgba(27, 35, 51, .07), 0 10px 28px -10px rgba(27, 35, 51, .22);
   --note: 0 1px 1px rgba(27, 35, 51, .08), 0 6px 14px -6px rgba(27, 35, 51, .25);
-  --font: 'Bricolage Grotesque', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', ui-sans-serif, system-ui, -apple-system, sans-serif;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {

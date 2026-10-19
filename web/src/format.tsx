@@ -8,8 +8,8 @@ export type TextFormat = Pick<Shape, 'font' | 'size' | 'bold' | 'italic' | 'unde
 
 export const FONTS = [
   { id: 'sans', label: 'Sans', css: 'var(--font)' },
-  { id: 'serif', label: 'Serif', css: "'Fraunces', Georgia, 'Times New Roman', serif" },
-  { id: 'mono', label: 'Mono', css: "'JetBrains Mono', ui-monospace, Menlo, monospace" },
+  { id: 'serif', label: 'Serif', css: "'Fraunces Variable', 'Fraunces', Georgia, 'Times New Roman', serif" },
+  { id: 'mono', label: 'Mono', css: "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace" },
   { id: 'hand', label: 'Handwriting', css: "'Caveat', 'Segoe Print', 'Bradley Hand', cursive" },
 ] as const;
 export const SIZE_STEPS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 80, 96, 128];

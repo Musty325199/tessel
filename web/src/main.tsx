@@ -7,6 +7,14 @@ import Dashboard from './pages/Dashboard';
 import BoardPage from './pages/BoardPage';
 import TryPage from './pages/TryPage';
 import { Mark } from './icons';
+// fonts ship with the app (no third-party requests, and they work offline)
+import '@fontsource-variable/bricolage-grotesque/opsz.css';
+import '@fontsource-variable/fraunces/wght.css';
+import '@fontsource-variable/fraunces/wght-italic.css';
+import '@fontsource-variable/jetbrains-mono/wght.css';
+import '@fontsource-variable/jetbrains-mono/wght-italic.css';
+import '@fontsource/caveat/500.css';
+import '@fontsource/caveat/700.css';
 import './styles.css';
 import './pages.css';
 

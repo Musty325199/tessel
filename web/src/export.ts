@@ -6,9 +6,9 @@ import { strokePath } from './ShapeView';
 /* Draws a board onto a canvas without the browser's DOM, so exports look the same on every device. */
 
 const FAMILY: Record<string, string> = {
-  sans: "'Bricolage Grotesque', system-ui, sans-serif",
-  serif: "'Fraunces', Georgia, serif",
-  mono: "'JetBrains Mono', Menlo, monospace",
+  sans: "'Bricolage Grotesque Variable', system-ui, sans-serif",
+  serif: "'Fraunces Variable', Georgia, serif",
+  mono: "'JetBrains Mono Variable', Menlo, monospace",
   hand: "'Caveat', 'Segoe Print', cursive",
 };
 const DARK = '#1B2333';

@@ -28,9 +28,27 @@ jobs:
         working-directory: web
         run: npm ci && npx tsc -p . && npx vite build
 
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Install
+        run: (cd server && npm ci) && (cd web && npm ci)
+      - name: Install the browser
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests (desktop and iPhone)
+        working-directory: web
+        run: npx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: playwright-traces, path: web/test-results }
+
   deploy:
     if: github.event_name == 'push'
-    needs: test
+    needs: [test, e2e]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
