@@ -1,0 +1,24 @@
+# Render Blueprint: creates the Tessel API on the free plan.
+services:
+  - type: web
+    name: tessel-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: CLIENT_ORIGIN
+        value: https://musty325199.github.io,http://localhost:5173
+      - key: APP_URL
+        value: https://musty325199.github.io/tessel
