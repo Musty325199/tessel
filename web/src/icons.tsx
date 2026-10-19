@@ -41,6 +41,8 @@ const P: Record<string, JSX.Element> = {
   'align-right': <path d="M4 6h16M10 10h10M4 14h16M10 18h10" strokeLinecap="round" />,
   list: <><path d="M9.5 6.5H20M9.5 12H20M9.5 17.5H20" strokeLinecap="round" /><circle cx="5" cy="6.5" r="1.3" fill="currentColor" stroke="none" /><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="5" cy="17.5" r="1.3" fill="currentColor" stroke="none" /></>,
   'list-num': <><path d="M10 6.5H20M10 12H20M10 17.5H20" strokeLinecap="round" /><path d="M4.2 5l1.3-.8V9M3.8 14.2c.3-.6.8-.9 1.4-.9.8 0 1.3.5 1.3 1.1 0 .9-1.4 1.6-2.7 2.9h2.8" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.3" /></>,
+  sparkle: <path d="M12 3.5l1.7 4.6 4.6 1.7-4.6 1.7L12 16.1l-1.7-4.6L5.7 9.8l4.6-1.7zM18.5 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" strokeLinejoin="round" />,
+  branch: <><circle cx="12" cy="12" r="3" /><path d="M12 9V4M12 15v5M9 12H4M15 12h5M6 6l3.5 3.5M18 18l-3.5-3.5" strokeLinecap="round" /></>,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />,
   close: <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />,
   reset: <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.7h3.7" strokeLinecap="round" strokeLinejoin="round" />,

@@ -4,6 +4,7 @@ export type TShape = {
   x: number; y: number; w: number; h: number; z: number;
   color?: string; stroke?: string; text?: string; size?: number; points?: number[];
   from?: { id?: string; x: number; y: number }; to?: { id?: string; x: number; y: number }; src?: string;
+  font?: string; bold?: boolean; italic?: boolean; underline?: boolean; strike?: boolean; align?: 'left' | 'center' | 'right'; textColor?: string;
 };
 
 export const STICKY = ['#FFE47A', '#FFC3A0', '#B6EBC6', '#B9DCFF', '#D8C8FF', '#FFBDD0'];

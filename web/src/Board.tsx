@@ -7,6 +7,7 @@ import {
 import type { Awareness } from 'y-protocols/awareness';
 import { Cursors, RemoteSelections, Reactions, usePeers, type Peer } from './presence';
 import { FORMATTABLE, FormatBar, applyList } from './format';
+import { AiPanel, type AiRequest, type AiResult } from './AiPanel';
 import type { End, Shape } from './store';
 import { ArrowLayer, ShapeView } from './ShapeView';
 import { arrowPoints, boundsOf, clampZ, contains, fitCamera, intersects, normBox, union } from './geometry';
@@ -57,11 +58,14 @@ type BoardProps = {
   top?: React.ReactNode;
   onApi?: (api: BoardApi) => void;
   onFollowChange?: (clientId: number | null) => void;
+  /** runs an AI action on the server; the board shows the result when it syncs */
+  onAi?: (r: AiRequest) => Promise<AiResult>;
   /** what to show instead of the toolbar when the board is view only */
   viewOnlyBar?: React.ReactNode;
 };
 
-export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar }: BoardProps) {
+export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar, onAi }: BoardProps) {
+  const [aiOpen, setAiOpen] = useState(false);
   const shapes = useShapes();
   const rootRef = useRef<HTMLDivElement>(null);
   const [cam, setCamState] = useState<Cam>({ x: 0, y: 0, z: 1 });
@@ -78,7 +82,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   const setEditing = (id: string | null) => { editingRef.current = id; setEditingState(id); };
   const [marquee, setMarquee] = useState<Box | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tray, setTray] = useState<null | 'sticky' | 'shapes' | 'pen' | 'react'>(null);
+  const [tray, setTray] = useState<null | 'sticky' | 'shapes' | 'pen' | 'react' | 'more'>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chat, setChat] = useState('');
   const [stickyColor, setStickyColor] = useState(STICKY[0]);
@@ -112,8 +116,9 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   const lookup = useCallback((id: string) => shapeById(id), []);
   const say = (t: string) => { setToast(t); window.clearTimeout((say as any).t); (say as any).t = window.setTimeout(() => setToast(''), 2600); };
 
-  const fit = useCallback((animate = false) => {
-    const b = union(allShapes().map((s) => boundsOf(s, lookup)).map((b) => ({ ...b, y: b.y - 30, h: b.h + 30 })));
+  const fit = useCallback((animate = false, only?: string[]) => {
+    const list = only ? allShapes().filter((s) => only.includes(s.id)) : allShapes();
+    const b = union(list.map((s) => boundsOf(s, lookup)).map((b) => ({ ...b, y: b.y - 30, h: b.h + 30 })));
     const el = rootRef.current; if (!el) return;
     const mobile = el.clientWidth < 640;
     const next = b ? fitCamera(b, el.clientWidth, el.clientHeight, mobile ? 64 : 72, mobile ? 92 : 96) : { x: el.clientWidth / 2, y: el.clientHeight / 2, z: 1 };
@@ -717,11 +722,36 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
         <ToolBtn n={shapeKind} label="Shapes and frames" on={['rect', 'ellipse', 'diamond', 'frame'].includes(tool)} onClick={() => { if (!['rect', 'ellipse', 'diamond', 'frame'].includes(tool)) setTool(shapeKind); setTray(tray === 'shapes' ? null : 'shapes'); }} caret />
         <ToolBtn n="arrow" label="Arrow (A)" on={tool === 'arrow'} onClick={() => setTool('arrow')} />
         <ToolBtn n="pen" label="Pen (P)" on={tool === 'pen'} onClick={() => { if (tool === 'pen') setTray(tray === 'pen' ? null : 'pen'); else setTool('pen'); }} dot={inkColor(penColor)} />
-        <ToolBtn n="eraser" label="Eraser (E)" on={tool === 'eraser'} onClick={() => setTool('eraser')} />
-        <ToolBtn n="image" label="Add an image" on={false} onClick={() => fileRef.current?.click()} />
-        {awareness && <ToolBtn n="react" label="React or say something" on={tray === 'react'} onClick={() => setTray(tray === 'react' ? null : 'react')} />}
+        <ToolBtn n="eraser" label="Eraser (E)" on={tool === 'eraser'} onClick={() => setTool('eraser')} className="desk" />
+        <ToolBtn n="image" label="Add an image" on={false} onClick={() => fileRef.current?.click()} className="desk" />
+        {awareness && <ToolBtn n="react" label="React or say something" on={tray === 'react'} onClick={() => setTray(tray === 'react' ? null : 'react')} className="desk" />}
+        <ToolBtn n="more" label="More tools" on={tray === 'more' || tool === 'eraser'} onClick={() => setTray(tray === 'more' ? null : 'more')} className="mob" />
+        {onAi && <ToolBtn n="sparkle" label="AI" on={aiOpen} onClick={() => { setTray(null); setAiOpen((o) => !o); }} className="ai-tool" />}
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) addImage(f); e.target.value = ''; }} />
       </nav>}
+      {aiOpen && onAi && (
+        <AiPanel selected={selShapes} onClose={() => setAiOpen(false)} onRun={async (r) => {
+          const res = await onAi({ ...r, at: r.action === 'diagram' ? viewCenter() : undefined });
+          // the new shapes arrive over the live connection; wait for them, then show them
+          const t0 = performance.now();
+          const show = () => {
+            const have = res.ids.filter((id) => shapeById(id));
+            if (have.length < res.ids.length && performance.now() - t0 < 4000) return void setTimeout(show, 120);
+            setSel(have.filter((id) => shapeById(id)?.type !== 'arrow' && shapeById(id)?.type !== 'frame'));
+            fit(true, have);
+            say(res.message);
+          };
+          show();
+        }} />
+      )}
+      {tray === 'more' && (
+        <div className="tray">
+          <button className={'tool' + (tool === 'eraser' ? ' on' : '')} aria-label="Eraser" onClick={() => setTool('eraser')}><Icon n="eraser" /></button>
+          <button className="tool" aria-label="Add an image" onClick={() => { setTray(null); fileRef.current?.click(); }}><Icon n="image" /></button>
+          {awareness && <button className="tool" aria-label="React or say something" onClick={() => setTray('react')}><Icon n="react" /></button>}
+          {!awareness && <button className="tool" aria-label="Hand tool" onClick={() => setTool('hand')}><Icon n="hand" /></button>}
+        </div>
+      )}
       {tray === 'react' && awareness && (
         <div className="tray react">
           {['👍', '❤️', '🎉', '😂', '🔥', '👀'].map((em) => <button key={em} className="emoji" onClick={() => { const c = viewCenter(); const cur = (awareness.getLocalState() as { cursor?: Pt } | null)?.cursor; awareness.setLocalStateField('reaction', { e: em, x: cur?.x ?? c.x, y: cur?.y ?? c.y, t: Date.now() }); }}>{em}</button>)}

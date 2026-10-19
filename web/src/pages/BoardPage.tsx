@@ -132,6 +132,7 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
   return (
     <div className="board-page">
       <Board awareness={conn?.awareness} readOnly={!canEdit && !!(role || info)} loaded={loaded} top={top} onApi={(a) => { boardApi.current = a; }} onFollowChange={setFollowing}
+        onAi={canEdit && user ? async (r) => api<{ ids: string[]; message: string }>(`/api/boards/${id}/ai${k ? `?k=${encodeURIComponent(k)}` : ''}`, { method: 'POST', body: r }) : undefined}
         viewOnlyBar={<ViewOnlyBar signedIn={!!user} linkEdit={info?.linkAccess === 'edit'} next={`/b/${id}${k ? `?k=${k}` : ''}`} />} />
       {!loaded && <div className="board-loading"><Spinner label="Opening board" /><p>{status === 'connecting' ? 'Opening the board… a sleeping server can take up to a minute to wake.' : 'Opening the board…'}</p></div>}
       {status === 'offline' && loaded && <div className="offline-pill" role="status">Offline · your changes are saved on this device</div>}

@@ -6,10 +6,11 @@ import type { Store } from './db/types.js';
 import { authRoutes, readUser, requireUser } from './auth.js';
 import { boardRoutes } from './boards.js';
 import { Rooms } from './realtime.js';
+import { aiRoutes, gemini, type AiModel } from './ai.js';
 import { config } from './config.js';
 import { errorHandler, parse, route } from './util.js';
 
-export function createApp(db: Store) {
+export function createApp(db: Store, opts: { ai?: AiModel } = {}) {
   const app = express();
   const rooms = new Rooms(db);
   app.set('trust proxy', 1); // Render sits behind a proxy; needed for per-IP rate limits
@@ -24,6 +25,7 @@ export function createApp(db: Store) {
 
   app.use('/api/auth', authRoutes(db));
   app.use('/api', boardRoutes(db, rooms));
+  app.use('/api', aiRoutes(db, rooms, opts.ai ?? gemini));
 
   app.get('/api/notifications', requireUser, route(async (req, res) => {
     const list = await db.notifications.list(req.user!.id, 50);
