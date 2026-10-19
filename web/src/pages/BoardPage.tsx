@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLock } from '../ui';
 import Board, { type BoardApi } from '../Board';
-import { api, auth, ago, freshToken, useUser, ApiError, WS_URL, type BoardInfo, type VersionInfo } from '../api';
+import { api, auth, ago, freshToken, useUser, ApiError, WS_URL, uploadImage, uploadsEnabled, type BoardInfo, type VersionInfo } from '../api';
 import { metaMap, newDoc, openLocalBoard, undo, useUndoState, doc as currentDoc } from '../store';
 import { BoardConnection, type Status } from '../sync';
 import { Avatars, usePeers } from '../presence';
@@ -11,6 +11,7 @@ import { PresentBar, TimerPicker, TimerPill, VoteBar, VoteMarks, slides, timer, 
 import { go, href, linkProps } from '../router';
 import Icon, { Mark } from '../icons';
 import { Avatar, Popover, Sheet, Spinner, ThemeSwitch, copyText } from '../ui';
+import { ExportSheet } from '../ExportSheet';
 import { drawThumbnail } from '../../../shared/thumbnail';
 import type { TShape } from '../../../shared/templates';
 
@@ -25,6 +26,9 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
   const [title, setTitle] = useState('');
   const [panel, setPanel] = useState<null | 'share' | 'versions' | 'comments' | 'timer' | 'vote'>(null);
   const [votesPer, setVotesPer] = useState(3);
+  const [exporting, setExporting] = useState(false);
+  const [canUpload, setCanUpload] = useState(false);
+  useEffect(() => { uploadsEnabled().then(setCanUpload); }, []);
   const [presenting, setPresenting] = useState<number | null>(null);
   const [followPresenter, setFollowPresenter] = useState(true);
   const [openThread, setOpenThread] = useState<string | null>(() => new URLSearchParams(location.search).get('c'));
@@ -175,6 +179,7 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
             {info && user && <button onClick={() => { setPanel('comments'); setMenu(false); }}><Icon n="comment" size={18} />Comments{openCount ? ` (${openCount})` : ''}</button>}
             {info && <button onClick={() => { setPanel('versions'); setMenu(false); }}><Icon n="history" size={18} />Version history</button>}
             {auth.signedIn() && info && <button onClick={async () => { setMenu(false); try { const r = await api<{ board: BoardInfo }>(`/api/boards/${id}/duplicate${k ? `?k=${k}` : ''}`, { method: 'POST' }); go(`/b/${r.board.id}`); } catch (e) { boardApi.current?.say(e instanceof ApiError ? e.message : 'Could not duplicate.'); } }}><Icon n="copy" size={18} />Make a copy</button>}
+            <button onClick={() => { setMenu(false); setExporting(true); }}><Icon n="download" size={18} />Export as PNG or PDF</button>
             <ThemeSwitch />
             {auth.signedIn() ? <a className="menu-link" {...linkProps('/boards')}><Icon n="grid" size={18} />All my boards</a> : <a className="menu-link" {...linkProps(`/login?next=/b/${id}${k ? `?k=${k}` : ''}`)}><Icon n="logout" size={18} />Sign in</a>}
           </Popover>
@@ -187,6 +192,7 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
     <div className="board-page">
       <Board awareness={conn?.awareness} readOnly={!canEdit && !!(role || info)} loaded={loaded} top={top} onApi={(a) => { boardApi.current = a; }} onFollowChange={setFollowing}
         onAi={canEdit && user ? async (r) => api<{ ids: string[]; message: string }>(`/api/boards/${id}/ai${k ? `?k=${encodeURIComponent(k)}` : ''}`, { method: 'POST', body: r }) : undefined}
+        uploadImage={canUpload && user && canEdit ? uploadImage : undefined}
         tapOverride={voteState?.active ? (sh) => {
           if (sh.type !== 'sticky') return false;
           if (!canEdit || !voterId) { boardApi.current?.say('Only people who can edit the board can vote.'); return true; }
@@ -211,6 +217,7 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
         </div>
         <button className="btn primary block" onClick={() => { voting.start(votesPer, user?.name || 'Someone', voterId); setPanel(null); }}>Start voting</button>
       </Sheet>}
+      {exporting && <ExportSheet title={title} selection={boardApi.current?.selection() ?? []} onClose={() => setExporting(false)} onDone={(m) => boardApi.current?.say(m)} />}
       {status === 'offline' && loaded && <div className="offline-pill" role="status">Offline · your changes are saved on this device</div>}
       {panel === 'share' && info && <ShareSheet info={info} isOwner={isOwner} canEdit={canEdit} onChange={setInfo} onClose={() => setPanel(null)} />}
       {panel === 'comments' && <Sheet title="Comments" onClose={() => setPanel(null)}>

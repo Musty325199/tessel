@@ -99,3 +99,19 @@ export const ago = (iso: string) => {
   if (s < 86400 * 7) return `${Math.floor(s / 86400)} d ago`;
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: new Date(iso).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
 };
+
+let uploadsOn: Promise<boolean> | null = null;
+/** Whether the server can sign photo uploads (Cloudinary is set up). */
+export const uploadsEnabled = () => (uploadsOn ??= api<{ enabled: boolean }>('/api/uploads/status', { auth: false }).then((r) => r.enabled).catch(() => false));
+
+/** Sends a photo straight to Cloudinary with a signature from our server, and returns a fast, resized link to it. */
+export async function uploadImage(file: Blob): Promise<string> {
+  const s = await api<{ cloud: string; apiKey: string; folder: string; timestamp: number; signature: string }>('/api/uploads/sign', { method: 'POST', body: {} });
+  const form = new FormData();
+  form.append('file', file); form.append('api_key', s.apiKey); form.append('timestamp', String(s.timestamp));
+  form.append('folder', s.folder); form.append('signature', s.signature);
+  const r = await fetch(`https://api.cloudinary.com/v1_1/${s.cloud}/image/upload`, { method: 'POST', body: form });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.secure_url) throw new ApiError(r.status, data?.error?.message || 'The photo couldn’t be uploaded.');
+  return String(data.secure_url).replace('/upload/', '/upload/f_auto,q_auto,c_limit,w_1600/');
+}

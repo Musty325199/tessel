@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
-  allShapes, createShape, deleteShapes, doc, getShape, shapeById, topZ,
+  allShapes, createShape, deleteShapes, doc, getShape, shapeById, topZ, updateQuiet,
   undo, updateMany, updateShape, useShapes, LOCAL,
 } from './store';
 import type { Awareness } from 'y-protocols/awareness';
@@ -51,6 +51,7 @@ export type BoardApi = {
   center: () => { x: number; y: number };
   panTo: (x: number, y: number) => void;
   startComment: () => void;
+  selection: () => string[];
 };
 type BoardProps = {
   awareness?: Awareness | null;
@@ -68,11 +69,14 @@ type BoardProps = {
   onCommentAt?: (p: { x: number; y: number }, shape: Shape | null) => void;
   /** runs an AI action on the server; the board shows the result when it syncs */
   onAi?: (r: AiRequest) => Promise<AiResult>;
+  /** uploads a photo and returns its link; without it photos are stored inside the board */
+  uploadImage?: (b: Blob) => Promise<string>;
   /** what to show instead of the toolbar when the board is view only */
   viewOnlyBar?: React.ReactNode;
 };
 
-export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar, onAi, overlay, onCommentAt, tapOverride }: BoardProps) {
+export default function Board({ awareness = null, readOnly = false, embedded = false, loaded, top, onApi, onFollowChange, viewOnlyBar, onAi, overlay, onCommentAt, tapOverride, uploadImage }: BoardProps) {
+  const uploadImageRef = useRef(uploadImage); uploadImageRef.current = uploadImage;
   const tapRef = useRef(tapOverride); tapRef.current = tapOverride;
   const [aiOpen, setAiOpen] = useState(false);
   const shapes = useShapes();
@@ -190,6 +194,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
       fit, say,
       follow: (c) => { setFollowing(c); if (c !== null) { const p = peers.find((x) => x.clientId === c); if (p) say(`Following ${p.name}. Move the board to stop.`); } },
       center: () => viewCenter(),
+      selection: () => selRef.current,
       startComment: () => { setTool('comment'); say('Tap where you want to leave a comment.'); },
       panTo: (x, y) => { const el = rootRef.current; if (!el) return; const c = camRef.current; setCam({ ...c, x: el.clientWidth / 2 - x * c.z, y: el.clientHeight * 0.4 - y * c.z }); },
     });
@@ -573,23 +578,55 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   const doUndo = () => { finishEdit(); undo.undo(); };
   const doRedo = () => { finishEdit(); undo.redo(); };
 
-  async function addImage(file: File) {
+  /** Shrinks a photo in the browser before it goes anywhere, so uploads are fast on mobile data. */
+  function shrink(img: HTMLImageElement, max: number, quality: number) {
+    const k = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    const ctx = c.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  async function addImage(file: File, at?: Pt) {
     if (!file.type.startsWith('image/')) return say('That file is not an image.');
+    if (file.size > 25 * 1024 * 1024) return say('That image is too large. Use one under 25 MB.');
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
-      const max = 1400, k = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-      const src = c.toDataURL('image/jpeg', 0.84);
+    img.onload = async () => {
       URL.revokeObjectURL(url);
-      const ctr = viewCenter(); const w = Math.min(360, c.width), h = w * (c.height / c.width);
-      const id = createShape({ type: 'image', x: ctr.x - w / 2, y: ctr.y - h / 2, w, h, src });
+      // show a small preview straight away, then swap in the full photo when it's uploaded
+      const small = shrink(img, 480, 0.7);
+      const ctr = at ?? viewCenter(); const w = Math.min(360, img.width), h = w * (img.height / img.width);
+      const id = createShape({ type: 'image', x: ctr.x - w / 2, y: ctr.y - h / 2, w, h, src: small.toDataURL('image/jpeg', 0.7) });
       setSel([id]); setTool('select');
+      const fallback = () => updateQuiet(id, { src: shrink(img, 1400, 0.84).toDataURL('image/jpeg', 0.84) });
+      if (!uploadImageRef.current) return fallback();
+      try {
+        const big = shrink(img, 2400, 0.9);
+        const blob = await new Promise<Blob | null>((r) => big.toBlob(r, 'image/jpeg', 0.9));
+        if (!blob) throw new Error('resize failed');
+        const link = await uploadImageRef.current(blob);
+        if (shapeById(id)) updateQuiet(id, { src: link });
+      } catch {
+        fallback();
+        say('The photo is saved in the board instead, because the upload didn’t go through.');
+      }
     };
-    img.onerror = () => say('This image could not be opened.');
+    img.onerror = () => { URL.revokeObjectURL(url); say('This image could not be opened.'); };
     img.src = url;
   }
+
+  // paste or drop images straight onto the board
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (readOnlyRef.current) return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+      const f = Array.from(e.clipboardData?.files || []).find((x) => x.type.startsWith('image/'));
+      if (f) { e.preventDefault(); addImage(f); }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  });
 
   // ---- keyboard
   useEffect(() => {
@@ -658,6 +695,8 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
           else if (toolRef.current === 'select') { const w = toWorld(e.clientX, e.clientY); const nid = createShape({ type: 'sticky', x: w.x - 90, y: w.y - 85, w: 180, h: 170, text: '', color: stickyColor }); startEdit(nid); }
         }}
         onContextMenu={(e) => e.preventDefault()}
+        onDragOver={(e) => { if (!readOnly && Array.from(e.dataTransfer.items).some((i) => i.type.startsWith('image/'))) e.preventDefault(); }}
+        onDrop={(e) => { const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/')); if (f && !readOnly) { e.preventDefault(); addImage(f, toWorld(e.clientX, e.clientY)); } }}
       >
         <div className="world" style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})` }}>
           {frames.map((s) => <ShapeView key={s.id} s={s} editing={editing === s.id} onDone={finishEdit} />)}

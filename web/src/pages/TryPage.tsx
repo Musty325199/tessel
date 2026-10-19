@@ -7,12 +7,14 @@ import { linkProps } from '../router';
 import { auth } from '../api';
 import Icon, { Mark } from '../icons';
 import { Popover, ThemeSwitch } from '../ui';
+import { ExportSheet } from '../ExportSheet';
 
 /** A board that lives only on this device, for trying Tessel without an account. */
 export default function TryPage() {
   const [loaded, setLoaded] = useState(false);
   const [key, setKey] = useState(0);
   const [menu, setMenu] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const api = useRef<BoardApi | null>(null);
   useLock();
   const { canUndo, canRedo } = useUndoState(key);
@@ -39,6 +41,7 @@ export default function TryPage() {
           <Popover open={menu} onClose={() => setMenu(false)}>
             <p className="muted pad small">This board is saved on this device only. Create a free account to share boards and work together live.</p>
             <button onClick={() => { api.current?.fit(true); setMenu(false); }}><Icon n="fit" size={18} />Fit board to screen</button>
+            <button onClick={() => { setMenu(false); setExporting(true); }}><Icon n="download" size={18} />Export as PNG or PDF</button>
             <ThemeSwitch />
             <button onClick={() => { clearBoard(); seedBoard(window.innerWidth < 700); setMenu(false); requestAnimationFrame(() => api.current?.fit(true)); }}><Icon n="reset" size={18} />Restore the sample board</button>
             <button className="danger" onClick={() => { clearBoard(); setMenu(false); api.current?.say('Board cleared. Undo brings it back.'); }}><Icon n="trash" size={18} />Clear the board</button>
@@ -47,5 +50,5 @@ export default function TryPage() {
       </div>
     </>
   );
-  return <div className="board-page"><Board loaded={loaded} top={top} onApi={(a) => { api.current = a; }} /></div>;
+  return <div className="board-page"><Board loaded={loaded} top={top} onApi={(a) => { api.current = a; }} />{exporting && <ExportSheet title="Practice board" selection={api.current?.selection() ?? []} onClose={() => setExporting(false)} onDone={(m) => api.current?.say(m)} />}</div>;
 }
