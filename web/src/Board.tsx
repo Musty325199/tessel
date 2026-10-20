@@ -780,19 +780,19 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
 
       {/* ---- toolbar */}
       {readOnly ? (viewOnlyBar ?? <div className="viewonly pill">View only</div>) : <nav className="toolbar" aria-label="Tools">
-        <ToolBtn n="select" label="Select (V)" on={tool === 'select'} onClick={() => setTool('select')} />
+        <ToolBtn n="select" short="Select" label="Select (V)" on={tool === 'select'} onClick={() => setTool('select')} />
         <ToolBtn n="hand" label="Move around (H)" on={tool === 'hand'} onClick={() => setTool('hand')} className="desk" />
-        <ToolBtn n="sticky" label="Sticky note (S)" on={tool === 'sticky'} onClick={() => { if (tool === 'sticky') setTray(tray === 'sticky' ? null : 'sticky'); else setTool('sticky'); }} dot={stickyColor} />
-        <ToolBtn n="text" label="Text (T)" on={tool === 'text'} onClick={() => setTool('text')} />
-        <ToolBtn n={shapeKind} label="Shapes and frames" on={['rect', 'ellipse', 'diamond', 'frame'].includes(tool)} onClick={() => { if (!['rect', 'ellipse', 'diamond', 'frame'].includes(tool)) setTool(shapeKind); setTray(tray === 'shapes' ? null : 'shapes'); }} caret />
-        <ToolBtn n="arrow" label="Arrow (A)" on={tool === 'arrow'} onClick={() => setTool('arrow')} />
-        <ToolBtn n="pen" label="Pen (P)" on={tool === 'pen'} onClick={() => { if (tool === 'pen') setTray(tray === 'pen' ? null : 'pen'); else setTool('pen'); }} dot={inkColor(penColor)} />
+        <ToolBtn n="sticky" short="Note" label="Sticky note (S)" on={tool === 'sticky'} onClick={() => { if (tool === 'sticky') setTray(tray === 'sticky' ? null : 'sticky'); else { setTool('sticky'); say('Tap anywhere on the board to add a note. Tap Note again for colours.'); } }} dot={stickyColor} />
+        <ToolBtn n="text" short="Text" label="Text (T)" on={tool === 'text'} onClick={() => { setTool('text'); say('Tap where you want to type.'); }} />
+        <ToolBtn n={shapeKind} short="Shape" label="Shapes and frames" on={['rect', 'ellipse', 'diamond', 'frame'].includes(tool)} onClick={() => { if (!['rect', 'ellipse', 'diamond', 'frame'].includes(tool)) setTool(shapeKind); setTray(tray === 'shapes' ? null : 'shapes'); }} caret />
+        <ToolBtn n="arrow" short="Arrow" label="Arrow (A)" on={tool === 'arrow'} onClick={() => setTool('arrow')} />
+        <ToolBtn n="pen" short="Pen" label="Pen (P)" on={tool === 'pen'} onClick={() => { if (tool === 'pen') setTray(tray === 'pen' ? null : 'pen'); else setTool('pen'); }} dot={inkColor(penColor)} />
         <ToolBtn n="eraser" label="Eraser (E)" on={tool === 'eraser'} onClick={() => setTool('eraser')} className="desk" />
         <ToolBtn n="image" label="Add an image" on={false} onClick={() => fileRef.current?.click()} className="desk" />
         {awareness && <ToolBtn n="react" label="React or say something" on={tray === 'react'} onClick={() => setTray(tray === 'react' ? null : 'react')} className="desk" />}
         {onCommentAt && <ToolBtn n="comment" label="Comment (C)" on={tool === 'comment'} onClick={() => setTool(tool === 'comment' ? 'select' : 'comment')} className="desk" />}
-        <ToolBtn n="more" label="More tools" on={tray === 'more' || tool === 'eraser' || tool === 'comment'} onClick={() => setTray(tray === 'more' ? null : 'more')} className="mob" />
-        {onAi && <ToolBtn n="sparkle" label="AI" on={aiOpen} onClick={() => { setTray(null); setAiOpen((o) => !o); }} className="ai-tool" />}
+        <ToolBtn n="more" short="More" label="More tools" on={tray === 'more' || tool === 'eraser' || tool === 'comment'} onClick={() => setTray(tray === 'more' ? null : 'more')} className="mob" />
+        {onAi && <ToolBtn n="sparkle" short="AI" label="AI" on={aiOpen} onClick={() => { setTray(null); setAiOpen((o) => !o); }} className="ai-tool" />}
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) addImage(f); e.target.value = ''; }} />
       </nav>}
       {aiOpen && onAi && (
@@ -855,10 +855,11 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   );
 }
 
-function ToolBtn({ n, label, on, onClick, dot, caret, className = '' }: { n: string; label: string; on: boolean; onClick: () => void; dot?: string; caret?: boolean; className?: string }) {
+function ToolBtn({ n, label, short, on, onClick, dot, caret, className = '' }: { n: string; label: string; short?: string; on: boolean; onClick: () => void; dot?: string; caret?: boolean; className?: string }) {
   return (
-    <button className={'tool ' + className + (on ? ' on' : '')} aria-label={label} aria-pressed={on} title={label} onClick={onClick}>
+    <button className={'tool ' + className + (on ? ' on' : '') + (short ? ' labelled' : '')} aria-label={label} aria-pressed={on} title={label} onClick={onClick}>
       <Icon n={n} />
+      {short && <span className="tlabel">{short}</span>}
       {dot && on && <span className="tdot" style={{ background: dot }} />}
       {caret && <span className="caret" />}
     </button>

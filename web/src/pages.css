@@ -524,3 +524,15 @@ a.textbtn { text-decoration: none; }
   .fmt > .fmt-group:last-child { position: sticky; right: 0; background: var(--surface); box-shadow: -10px 0 12px -4px var(--surface); z-index: 1; }
   .stylebar .fmt { -webkit-mask-image: none; mask-image: none; padding-right: 0; }
 }
+
+/* phones: every tool has a short name under its icon, so nobody has to guess */
+.tlabel { display: none; }
+@media (max-width: 640px) {
+  .tool.labelled { height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .tool.labelled svg { width: 21px; height: 21px; }
+  .tlabel { display: block; font-size: 10.5px; font-weight: 600; line-height: 1; letter-spacing: .01em; }
+  .tool.labelled .tdot { bottom: 3px; display: none; }
+  .tool.labelled .caret { right: 4px; bottom: 16px; }
+  .tray, .ai-panel, .chatbox, .votebar, .presentbar, .offline-pill { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 78px) !important; }
+  .fitbtn { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 82px); }
+}
