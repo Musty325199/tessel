@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Shape } from './store';
+import { allShapes, type Shape } from './store';
 import Icon from './icons';
 
 export type AiAction = 'organise' | 'summarise' | 'diagram' | 'expand';
@@ -14,7 +14,11 @@ export function AiPanel({ selected, onRun, onClose }: { selected: Shape[]; onRun
   const [busy, setBusy] = useState<AiAction | null>(null);
   const [err, setErr] = useState('');
   const [prompt, setPrompt] = useState('');
-  const notes = selected.filter((s) => s.type === 'sticky' && (s.text || '').trim());
+  const picked = selected.filter((s) => s.type === 'sticky' && (s.text || '').trim());
+  // nothing (or too little) selected: organise every sticky note on the board, so it works in one tap
+  const boardNotes = allShapes().filter((s) => s.type === 'sticky' && (s.text || '').trim());
+  const useAll = picked.length < 3;
+  const notes = useAll ? boardNotes : picked;
   const one = selected.length === 1 && ['sticky', 'text', 'rect', 'ellipse', 'diamond'].includes(selected[0].type) && (selected[0].text || '').trim() ? selected[0] : null;
 
   async function run(r: AiRequest) {
@@ -33,13 +37,13 @@ export function AiPanel({ selected, onRun, onClose }: { selected: Shape[]; onRun
       {busy ? (
         <div className="ai-busy" role="status"><span className="ai-dots"><i /><i /><i /></span><span>{busy === 'diagram' ? 'Drawing your flowchart…' : busy === 'organise' ? 'Sorting your notes into themes…' : busy === 'expand' ? 'Growing new ideas…' : 'Reading the board…'}<small>This usually takes 5 to 20 seconds.</small></span></div>
       ) : <>
-        <button className="ai-opt" disabled={notes.length < 3} onClick={() => run({ action: 'organise', ids: selected.map((n) => n.id) })}>
+        <button className="ai-opt" disabled={notes.length < 3} onClick={() => run({ action: 'organise', ids: useAll ? allShapes().map((n) => n.id) : selected.map((n) => n.id) })}>
           <Icon n="grid" size={20} />
-          <span><b>Organise into groups</b><small>{notes.length >= 3 ? `Sort ${notes.length} selected notes into themes` : 'Select 3 or more sticky notes first'}</small></span>
+          <span><b>Organise notes into groups</b><small>{notes.length < 3 ? 'Add at least 3 sticky notes with text first' : useAll ? `Sorts all ${notes.length} sticky notes into themed groups` : `Sorts the ${notes.length} selected notes into themed groups`}</small></span>
         </button>
         <button className="ai-opt" disabled={!one} onClick={() => one && run({ action: 'expand', ids: [one.id] })}>
           <Icon n="branch" size={20} />
-          <span><b>Grow ideas from this note</b><small>{one ? `5 new ideas around “${(one.text || '').slice(0, 28)}${(one.text || '').length > 28 ? '…' : ''}”` : 'Select one note first'}</small></span>
+          <span><b>Grow ideas from this note</b><small>{one ? `5 new ideas around “${(one.text || '').slice(0, 28)}${(one.text || '').length > 28 ? '…' : ''}”` : 'Tap one note first, then open AI again'}</small></span>
         </button>
         <button className="ai-opt" onClick={() => run({ action: 'summarise', ids: selected.length ? selected.map((s) => s.id) : undefined })}>
           <Icon n="text" size={20} />
