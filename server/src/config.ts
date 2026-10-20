@@ -16,7 +16,7 @@ export const config = {
   origins: (env.CLIENT_ORIGIN || 'http://localhost:5173,http://localhost:4173,http://localhost:4400').split(',').map((s) => s.trim()).filter(Boolean),
   appUrl: (env.APP_URL || (env.NODE_ENV === 'production' ? 'https://musty325199.github.io/tessel' : 'http://localhost:5173')).replace(/\/$/, ''),
   geminiKey: env.GEMINI_API_KEY || '',
-  geminiModel: env.GEMINI_MODEL || 'gemini-2.5-flash',
+  geminiModel: env.GEMINI_MODEL || 'gemini-flash-latest',
   resendKey: env.RESEND_API_KEY || '',
   mailFrom: env.MAIL_FROM || '',
   accessTtlSec: 15 * 60,

@@ -31,25 +31,56 @@ async function pickModel(key: string): Promise<string> {
 
 export const gemini: AiModel = async (prompt, schema) => {
   if (!config.geminiKey) fail(503, 'AI isn’t switched on for this server yet. The owner needs to add a Gemini key.', 'ai_off');
-  const call = async (model: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+  const call = (model: string, withSchema: boolean) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiKey },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.4 },
+      contents: [{ role: 'user', parts: [{ text: withSchema ? prompt : `${prompt}\n\nReply with JSON only, matching this JSON schema:\n${JSON.stringify(schema)}` }] }],
+      generationConfig: withSchema ? { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.4 } : { responseMimeType: 'application/json', temperature: 0.4 },
     }),
     signal: AbortSignal.timeout(45000),
   });
-  let model = resolvedModel || config.geminiModel;
-  let r = await call(model);
-  if (r.status === 404) { resolvedModel = null; model = await pickModel(config.geminiKey); r = await call(model); }
-  if (r.status === 429) fail(429, 'The AI is busy right now (free plan limit). Try again in a minute.', 'ai_busy');
-  if (!r.ok) { console.error('gemini', r.status, (await r.text()).slice(0, 400)); fail(502, 'The AI couldn’t answer this time. Try again.', 'ai_failed'); }
-  resolvedModel = model;
-  const data = (await r.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-  try { return JSON.parse(text); } catch { fail(502, 'The AI gave an answer Tessel couldn’t use. Try again.', 'ai_bad'); }
+  // try the saved model first; if Google rejects the model or the schema, pick another model and finally ask without a schema
+  const attempts: { model: () => Promise<string>; schema: boolean }[] = [
+    { model: async () => resolvedModel || config.geminiModel, schema: true },
+    { model: async () => { resolvedModel = null; return pickModel(config.geminiKey); }, schema: true },
+    { model: async () => resolvedModel || pickModel(config.geminiKey), schema: false },
+  ];
+  let lastErr = '';
+  for (const a of attempts) {
+    const model = await a.model();
+    let r: Response;
+    try { r = await call(model, a.schema); } catch (e) { lastErr = String(e); continue; }
+    if (r.ok) {
+      resolvedModel = model;
+      const data = (await r.json()) as { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[] };
+      const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('').trim();
+      const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+      try { return JSON.parse(json); } catch { lastErr = 'bad json: ' + text.slice(0, 200); continue; }
+    }
+    const body = (await r.text()).slice(0, 600);
+    lastErr = `${r.status} ${model}: ${body}`;
+    console.error('gemini', lastErr);
+    if (r.status === 429) fail(429, 'The AI is busy right now (free plan limit). Try again in a minute.', 'ai_busy');
+    if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|API has not been used|SERVICE_DISABLED/i.test(body)) {
+      fail(503, 'The Gemini key on the server isn’t working. Check GEMINI_API_KEY in Render.', 'ai_key');
+    }
+    if (/location is not supported|FAILED_PRECONDITION/i.test(body)) fail(503, 'Gemini’s free plan isn’t available for this server’s region.', 'ai_region');
+  }
+  console.error('gemini gave up:', lastErr);
+  fail(502, 'The AI couldn’t answer this time. Try again.', 'ai_failed');
 };
+
+/** Lets the owner see why AI isn't working without reading server logs. */
+export async function aiDiagnose() {
+  if (!config.geminiKey) return { ok: false, reason: 'No GEMINI_API_KEY set' };
+  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': config.geminiKey } }).catch((e) => e as Error);
+  if (r instanceof Error) return { ok: false, reason: 'Could not reach Google: ' + r.message };
+  if (!r.ok) return { ok: false, status: r.status, reason: (await r.text()).slice(0, 300) };
+  const data = (await r.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
+  const names = (data.models || []).filter((m) => m.supportedGenerationMethods?.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''));
+  return { ok: true, configured: config.geminiModel, configuredAvailable: names.includes(config.geminiModel), using: await pickModel(config.geminiKey), flashModels: names.filter((n) => /flash/.test(n)).slice(0, 12) };
+}
 
 // ---------- layouts (pure functions, so they are easy to test)
 type New = Omit<TShape, 'z'>;
@@ -311,7 +342,10 @@ ${context || '(nothing else yet)'}`, schemas.expand) as { ideas: string[] };
     return res.json({ ok: true, ids: shapes.filter((s) => s.type === 'sticky').map((s) => s.id), message: `Added ${ideas.length} ideas.` });
   }));
 
-  r.get('/ai/status', (_req, res) => { res.json({ enabled: !!config.geminiKey }); });
+  r.get('/ai/status', route(async (req, res) => {
+    if (req.query.check === '1') return res.json({ enabled: !!config.geminiKey, check: await aiDiagnose() });
+    res.json({ enabled: !!config.geminiKey });
+  }));
   return r;
 }
 
