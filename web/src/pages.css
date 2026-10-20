@@ -505,3 +505,6 @@ a.textbtn { text-decoration: none; }
 .seg.wide button { flex: 1; padding: 9px 4px; }
 .seg button:disabled { opacity: .4; cursor: default; }
 .exp-select { height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 0 12px; font: inherit; font-size: 16px; }
+
+.ai-busy > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.ai-busy small { font-weight: 400; color: var(--ink-2); font-size: 13px; }

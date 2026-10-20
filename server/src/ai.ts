@@ -51,6 +51,7 @@ export const gemini: AiModel = async (prompt, schema) => {
   const main = config.geminiModel;
   const attempts: Attempt[] = [
     ...(working ? [working] : []),
+    { model: main, schema: true, thinking: { thinkingLevel: 'minimal' } },
     { model: main, schema: true, thinking: { thinkingLevel: 'low' } },
     { model: main, schema: true, thinking: { thinkingBudget: 0 } },
     { model: 'gemini-flash-lite-latest', schema: true },

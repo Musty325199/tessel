@@ -30,7 +30,7 @@ export function AiPanel({ selected, onRun, onClose }: { selected: Shape[]; onRun
         <button className="ib" onClick={onClose} aria-label="Close"><Icon n="close" size={18} /></button>
       </div>
       {busy ? (
-        <div className="ai-busy" role="status"><span className="ai-dots"><i /><i /><i /></span>{busy === 'diagram' ? 'Drawing your flowchart…' : busy === 'organise' ? 'Sorting your notes into themes…' : busy === 'expand' ? 'Growing new ideas…' : 'Reading the board…'}</div>
+        <div className="ai-busy" role="status"><span className="ai-dots"><i /><i /><i /></span><span>{busy === 'diagram' ? 'Drawing your flowchart…' : busy === 'organise' ? 'Sorting your notes into themes…' : busy === 'expand' ? 'Growing new ideas…' : 'Reading the board…'}<small>This usually takes 5 to 20 seconds.</small></span></div>
       ) : <>
         <button className="ai-opt" disabled={notes.length < 3} onClick={() => run({ action: 'organise', ids: selected.map((n) => n.id) })}>
           <Icon n="grid" size={20} />
