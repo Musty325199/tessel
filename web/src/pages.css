@@ -536,3 +536,8 @@ a.textbtn { text-decoration: none; }
   .tray, .ai-panel, .chatbox, .votebar, .presentbar, .offline-pill { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 78px) !important; }
   .fitbtn { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 82px); }
 }
+
+/* the style bar (with its drag handle) always fits the screen; the buttons scroll inside it */
+.stylebar { max-width: calc(100vw - 16px); box-sizing: border-box; }
+.stylebar .fmt-wrap { min-width: 0; flex: 1 1 auto; }
+.stylebar .fmt { max-width: 100%; }

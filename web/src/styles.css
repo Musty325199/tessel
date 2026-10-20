@@ -195,6 +195,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   position: absolute; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 5px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--lift); animation: pop .12s ease-out;
 }
+.bar-grip { flex: none; width: 22px; height: 36px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-2); border-radius: 9px; cursor: grab; touch-action: none; }
+.bar-grip:hover { background: var(--surface-2); color: var(--ink); }
+.bar-grip:active { cursor: grabbing; }
+.stylebar.moved { animation: none; z-index: 40; }
 .stylebar.pinned { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 70px) !important; z-index: 40; max-width: calc(100vw - 16px); }
 
 /* ---------- formatting bar */

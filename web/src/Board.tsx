@@ -120,6 +120,32 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   const fileRef = useRef<HTMLInputElement>(null);
   const [ready, setReady] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
+  // where the person dragged the style bar to (null = follow the selection)
+  const [barPos, setBarPos] = useState<{ x: number; y: number } | null>(null);
+  const barDrag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean; t: number } | null>(null);
+  const lastGripTap = useRef(0);
+  const gripDown = (e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const el = barRef.current, root = rootRef.current; if (!el || !root) return;
+    const r = el.getBoundingClientRect(), rr = root.getBoundingClientRect();
+    barDrag.current = { px: e.clientX, py: e.clientY, x: r.left + r.width / 2 - rr.left, y: r.top - rr.top, moved: false, t: Date.now() };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const gripMove = (e: React.PointerEvent) => {
+    const d = barDrag.current, el = barRef.current, root = rootRef.current; if (!d || !el || !root) return;
+    const dx = e.clientX - d.px, dy = e.clientY - d.py;
+    if (!d.moved && Math.hypot(dx, dy) < 4) return;
+    d.moved = true;
+    const w = el.offsetWidth, h = el.offsetHeight, vw = root.clientWidth, vh = root.clientHeight;
+    setBarPos({ x: Math.min(Math.max(w / 2 + 8, d.x + dx), vw - w / 2 - 8), y: Math.min(Math.max(8, d.y + dy), vh - h - 8) });
+  };
+  const gripUp = () => {
+    const d = barDrag.current; barDrag.current = null;
+    if (!d || d.moved) return;
+    // a double tap on the handle puts the bar back next to the selection
+    const now = Date.now();
+    if (now - lastGripTap.current < 350) { setBarPos(null); lastGripTap.current = 0; } else lastGripTap.current = now;
+  };
   // keep the style bar fully on screen
   useLayoutEffect(() => {
     const el = barRef.current; if (!el) return;
@@ -739,12 +765,16 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
         const vw = el?.clientWidth || 400, vh = el?.clientHeight || 800;
         const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
         // on phones the keyboard covers the bottom, so while typing the bar sits under the top bar
-        const pinned = !!editing && coarse;
+        const pinned = !!editing && coarse && !barPos;
         const above = r.top - 62;
-        const top = pinned ? 72 : above > 70 ? above : Math.min(r.top + r.height + 14, vh - 150);
-        const left = pinned ? vw / 2 : Math.min(Math.max(12, r.left + r.width / 2), vw - 12);
+        const top = barPos ? barPos.y : pinned ? 72 : above > 70 ? above : Math.min(r.top + r.height + 14, vh - 150);
+        const left = barPos ? barPos.x : pinned ? vw / 2 : Math.min(Math.max(12, r.left + r.width / 2), vw - 12);
         return (
-          <div ref={barRef} className={'stylebar' + (pinned ? ' pinned' : '')} style={{ top, left }}>
+          <div ref={barRef} className={'stylebar' + (pinned ? ' pinned' : '') + (barPos ? ' moved' : '')} style={{ top, left }}>
+            <button className="bar-grip" aria-label="Move toolbar (double tap to put it back)" title="Drag to move · double tap to put back"
+              onPointerDown={gripDown} onPointerMove={gripMove} onPointerUp={gripUp} onPointerCancel={() => { barDrag.current = null; }}>
+              <svg width="10" height="18" viewBox="0 0 10 18" aria-hidden="true">{[3, 9, 15].flatMap((y) => [2.5, 7.5].map((x) => <circle key={x + '-' + y} cx={x} cy={y} r="1.6" fill="currentColor" />))}</svg>
+            </button>
             <FormatBar
               shapes={selShapes}
               editing={!!editing}
