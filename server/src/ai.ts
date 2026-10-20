@@ -79,7 +79,18 @@ export async function aiDiagnose() {
   if (!r.ok) return { ok: false, status: r.status, reason: (await r.text()).slice(0, 300) };
   const data = (await r.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
   const names = (data.models || []).filter((m) => m.supportedGenerationMethods?.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''));
-  return { ok: true, configured: config.geminiModel, configuredAvailable: names.includes(config.geminiModel), using: await pickModel(config.geminiKey), flashModels: names.filter((n) => /flash/.test(n)).slice(0, 12) };
+  // try one tiny real request, with and without a schema, and report exactly what Google says
+  const using = await pickModel(config.geminiKey);
+  const probe = async (withSchema: boolean) => {
+    const body = { contents: [{ role: 'user', parts: [{ text: 'Reply with {"ok": true}' }] }], generationConfig: withSchema ? { responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { ok: { type: 'BOOLEAN' } }, required: ['ok'] } } : { responseMimeType: 'application/json' } };
+    const t0 = Date.now();
+    try {
+      const rr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(using)}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiKey }, body: JSON.stringify(body), signal: AbortSignal.timeout(45000) });
+      return { status: rr.status, ms: Date.now() - t0, body: (await rr.text()).slice(0, 700) };
+    } catch (e) { return { error: String(e), ms: Date.now() - t0 }; }
+  };
+  const probes = { withSchema: await probe(true), withoutSchema: await probe(false) };
+  return { ok: true, probes, configured: config.geminiModel, configuredAvailable: names.includes(config.geminiModel), using: await pickModel(config.geminiKey), flashModels: names.filter((n) => /flash/.test(n)).slice(0, 12) };
 }
 
 // ---------- layouts (pure functions, so they are easy to test)
