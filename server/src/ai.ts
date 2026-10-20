@@ -27,6 +27,7 @@ async function pickModel(key: string): Promise<string> {
   return (resolvedModel = flash[0] || names[0] || config.geminiModel);
 }
 
+const LITE = 'gemini-flash-lite-latest';
 type Attempt = { model: string; schema: boolean; thinking?: object };
 let working: Attempt | null = null; // the first setup that worked is reused for later requests
 
@@ -44,37 +45,42 @@ export const gemini: AiModel = async (prompt, schema) => {
         ...(a.thinking ? { thinkingConfig: a.thinking } : {}),
       },
     }),
-    signal: AbortSignal.timeout(40000),
+    signal: AbortSignal.timeout(25000),
   });
   const main = config.geminiModel;
   const attempts: Attempt[] = [
+    // the light model answers in a couple of seconds and is plenty for sorting and short text,
+    // so it goes first; the bigger model is the backup. This also holds right after the server wakes up.
     ...(working ? [working] : []),
-    { model: main, schema: true, thinking: { thinkingLevel: 'minimal' } },
-    { model: main, schema: true, thinking: { thinkingLevel: 'low' } },
+    { model: LITE, schema: true },
     { model: main, schema: true, thinking: { thinkingBudget: 0 } },
-    { model: 'gemini-flash-lite-latest', schema: true },
+    { model: main, schema: true, thinking: { thinkingLevel: 'minimal' } },
+    { model: LITE, schema: false },
     { model: main, schema: false },
-  ];
+  ].filter((a, i, arr) => arr.findIndex((b) => JSON.stringify(b) === JSON.stringify(a)) === i);
   let lastErr = '';
+  let busy = false;
   const started = Date.now();
   for (const a of attempts) {
-    if (Date.now() - started > 75000) break; // don't keep the person waiting forever
+    if (Date.now() - started > 70000) break; // don't keep the person waiting forever
     let r: Response;
+    const t0 = Date.now();
     try { r = await call(a); } catch (e) { lastErr = `${a.model}: ${(e as Error).name === 'TimeoutError' ? 'timed out' : String(e)}`; console.error('gemini', lastErr); continue; }
     if (r.ok) {
       const data = (await r.json()) as { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[] };
       const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('').trim();
       const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-      try { const out = JSON.parse(json); working = a; return out; } catch { lastErr = `${a.model}: bad json ${text.slice(0, 160)}`; continue; }
+      try { const out = JSON.parse(json); working = Date.now() - t0 < 15000 ? a : working; return out; } catch { lastErr = `${a.model}: bad json ${text.slice(0, 160)}`; continue; }
     }
     const body = (await r.text()).slice(0, 600);
     lastErr = `${r.status} ${a.model}: ${body.replace(/\s+/g, ' ').slice(0, 300)}`;
     console.error('gemini', lastErr);
-    if (r.status === 429) fail(429, 'The AI is busy right now (free plan limit). Try again in a minute.', 'ai_busy');
+    if (r.status === 429) { busy = true; continue; } // this model's free limit is used up; another model has its own
     if (/API key not valid|API_KEY_INVALID|API has not been used|SERVICE_DISABLED/i.test(body)) fail(503, 'The Gemini key on the server isn’t working. Check GEMINI_API_KEY in Render.', 'ai_key');
     if (/location is not supported/i.test(body)) fail(503, 'Gemini’s free plan isn’t available for this server’s region.', 'ai_region');
   }
   console.error('gemini gave up:', lastErr);
+  if (busy) fail(429, 'The AI is busy right now (free plan limit). Try again in a minute.', 'ai_busy');
   throw Object.assign(new HttpError(502, 'The AI couldn’t answer this time. Try again.', 'ai_failed'), { detail: lastErr });
 };
 
@@ -357,6 +363,13 @@ ${context || '(nothing else yet)'}`, schemas.expand) as { ideas: string[] };
       // a full-size request, timed, exactly like "Draw it for me"
       const t0 = Date.now();
       try { const out = await model('Draw a flowchart for: "how a customer orders food". Use 4 to 12 nodes. Kinds: start, step, decision, end. Short labels. Node ids like n1.', schemas.diagram); return res.json({ ok: true, ms: Date.now() - t0, working, out }); }
+      catch (e) { return res.json({ ok: false, ms: Date.now() - t0, error: (e as Error).message, detail: (e as { detail?: string }).detail }); }
+    }
+    if (req.query.check === '3') {
+      // an organise request like the real one, timed
+      const t0 = Date.now();
+      const list = ['price is too high', 'delivery takes long', 'cheaper plan', 'faster checkout', 'discount codes', 'live tracking'].map((t, i) => `n${i}: ${t}`).join('\n');
+      try { const out = await model(`You organise sticky notes from a team whiteboard into themes.\nGroup the notes below into 2 to 6 clear themes. Give each theme a short title of 1 to 4 words. Every note id must appear in exactly one group. Use the ids exactly as given.\n\nNotes (id: text):\n${list}`, schemas.organise); return res.json({ ok: true, ms: Date.now() - t0, working, out }); }
       catch (e) { return res.json({ ok: false, ms: Date.now() - t0, error: (e as Error).message, detail: (e as { detail?: string }).detail }); }
     }
     res.json({ enabled: !!config.geminiKey });
