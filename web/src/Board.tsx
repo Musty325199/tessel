@@ -127,7 +127,8 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   });
 
   const lookup = useCallback((id: string) => shapeById(id), []);
-  const say = (t: string) => { setToast(t); window.clearTimeout((say as any).t); (say as any).t = window.setTimeout(() => setToast(''), 2600); };
+  const [toastAction, setToastAction] = useState<{ label: string; run: () => void } | null>(null);
+  const say = (t: string, action?: { label: string; run: () => void }) => { setToast(t); setToastAction(action ?? null); window.clearTimeout((say as any).t); (say as any).t = window.setTimeout(() => { setToast(''); setToastAction(null); }, action ? 7000 : 2600); };
 
   const fit = useCallback((animate = false, only?: string[]) => {
     const list = only ? allShapes().filter((s) => only.includes(s.id)) : allShapes();
@@ -793,16 +794,19 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
       {aiOpen && onAi && (
         <AiPanel selected={selShapes} onClose={() => setAiOpen(false)} onRun={async (r) => {
           const res = await onAi({ ...r, at: r.action === 'diagram' ? viewCenter() : undefined });
-          // the new shapes arrive over the live connection; wait for them, then show them
-          const t0 = performance.now();
-          const show = () => {
-            const have = res.ids.filter((id) => shapeById(id));
-            if (have.length < res.ids.length && performance.now() - t0 < 4000) return void setTimeout(show, 120);
-            setSel(have.filter((id) => shapeById(id)?.type !== 'arrow' && shapeById(id)?.type !== 'frame'));
-            fit(true, have);
-            say(res.message);
-          };
-          show();
+          // apply the AI's changes as one edit of mine: it syncs to everyone and Undo takes it back in one step
+          const ops = res.ops || {};
+          undo.stopCapturing();
+          doc.transact(() => {
+            (ops.remove || []).forEach((id) => { if (shapeById(id)) deleteShapes([id]); });
+            Object.entries(ops.update || {}).forEach(([id, p]) => { if (shapeById(id)) updateShape(id, p); });
+            (ops.create || []).forEach((sh) => { const { z: _z, ...rest } = sh as Shape; createShape(rest); });
+          }, LOCAL);
+          undo.stopCapturing();
+          const have = res.ids.filter((id) => shapeById(id));
+          setSel(have.filter((id) => shapeById(id)?.type !== 'arrow' && shapeById(id)?.type !== 'frame'));
+          fit(true, have);
+          say(res.message, { label: 'Undo', run: () => { undo.undo(); say('Undone. Use Redo to bring it back.'); } });
         }} />
       )}
       {tray === 'more' && (
@@ -834,7 +838,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
       </div>
       <button className="fitbtn pill mob" aria-label="Fit board to screen" onClick={() => fit(true)}><Icon n="fit" size={20} /></button>
 
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && <div className={'toast' + (toastAction ? ' with-action' : '')} role="status"><span>{toast}</span>{toastAction && <button onClick={() => { const a = toastAction; setToast(''); setToastAction(null); a.run(); }}>{toastAction.label}</button>}</div>}
     </div>
   );
 }

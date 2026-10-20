@@ -32,7 +32,7 @@ export default function TryPage() {
         <span className="title static">Practice board</span>
         <span className="sep" />
         <button className="ib" onClick={() => undo.undo()} disabled={!canUndo} aria-label="Undo"><Icon n="undo" size={20} /></button>
-        <button className="ib desk" onClick={() => undo.redo()} disabled={!canRedo} aria-label="Redo"><Icon n="redo" size={20} /></button>
+        <button className={'ib' + (canRedo ? '' : ' desk')} onClick={() => undo.redo()} disabled={!canRedo} aria-label="Redo"><Icon n="redo" size={20} /></button>
       </div>
       <div className="pill people">
         <a className="share" {...linkProps(auth.signedIn() ? '/boards' : '/signup')}><span className="always">{auth.signedIn() ? 'My boards' : 'Save & share'}</span></a>

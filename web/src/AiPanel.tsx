@@ -4,7 +4,8 @@ import Icon from './icons';
 
 export type AiAction = 'organise' | 'summarise' | 'diagram' | 'expand';
 export type AiRequest = { action: AiAction; ids?: string[]; prompt?: string; at?: { x: number; y: number } };
-export type AiResult = { ids: string[]; message: string };
+export type AiOps = { create?: Partial<Shape>[]; update?: Record<string, Partial<Shape>>; remove?: string[] };
+export type AiResult = { ids: string[]; message: string; ops?: AiOps };
 
 const IDEAS = ['How a food delivery order works', 'Signing up for a new app', 'Planning a product launch', 'Fixing a customer complaint'];
 

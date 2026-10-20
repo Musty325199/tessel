@@ -48,8 +48,10 @@ describe('AI endpoint', () => {
     const ids = before.filter((x) => x.type === 'sticky').map((x) => x.id);
     const r = await request(app).post(`/api/boards/${board.id}/ai`).set(auth).send({ action: 'organise', ids });
     expect(r.status).toBe(200);
-    const after = await rooms.shapes(board.id);
-    expect(after.filter((x) => x.type === 'frame').map((f) => f.text)).toEqual(expect.arrayContaining(['First half', 'Second half']));
+    // the server sends back what to change; the browser applies it, so it lands in that person's undo history
+    expect(r.body.ops.create.filter((x: { type: string }) => x.type === 'frame').map((f: { text: string }) => f.text)).toEqual(['First half', 'Second half']);
+    expect(Object.keys(r.body.ops.update).sort()).toEqual([...ids].sort());
+    expect((await rooms.shapes(board.id)).length).toBe(before.length); // nothing written behind the user's back
     const versions = (await request(app).get(`/api/boards/${board.id}/versions`).set(auth)).body.versions;
     expect(versions.some((v: { name: string }) => v.name === 'Before AI: organise')).toBe(true);
 

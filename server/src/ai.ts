@@ -6,11 +6,9 @@ import { requireUser } from './auth.js';
 import { canEdit, roleFor } from './access.js';
 import type { Rooms } from './realtime.js';
 import { config } from './config.js';
-import { shapesOf } from './ydoc.js';
 import { HttpError, fail, id, parse, route } from './util.js';
 import type { TShape } from '../../shared/templates.js';
 import { STICKY } from '../../shared/templates.js';
-import * as Y from 'yjs';
 
 /** Anything that can answer a prompt with JSON matching a schema. Gemini in production, a fake in tests. */
 export type AiModel = (prompt: string, schema: object) => Promise<unknown>;
@@ -256,6 +254,11 @@ const schemas = {
 
 const textOf = (s: TShape) => clip(s.text || '');
 
+/**
+ * The server works out WHAT to change and sends it back; the person's own browser applies it.
+ * That makes every AI change part of that person's undo history, like any edit they make by hand,
+ * and it syncs to everyone else through the normal live connection.
+ */
 export function aiRoutes(db: Store, rooms: Rooms, model: AiModel = gemini) {
   const r = Router();
   const limiter = rateLimit({
@@ -281,15 +284,9 @@ export function aiRoutes(db: Store, rooms: Rooms, model: AiModel = gemini) {
     const notes = chosen.filter((s) => ['sticky', 'text', 'rect', 'ellipse', 'diamond'].includes(s.type) && textOf(s));
     const keep = async (label: string) => {
       const state = await rooms.snapshot(b!._id);
-      await db.versions.insert({ _id: id(), boardId: b!._id, name: `Before AI: ${label}`, auto: false, state, shapeCount: all.length, createdBy: req.user!.id, createdAt: new Date() });
-    };
-    const insert = (doc: Y.Doc, shapes: New[]) => {
-      let z = 0; shapesOf(doc).forEach((m) => { z = Math.max(z, (m.get('z') as number) || 0); });
-      shapes.forEach((s) => {
-        const m = new Y.Map<unknown>();
-        Object.entries({ ...s, z: s.type === 'frame' ? -1000 + (++z) / 1000 : ++z }).forEach(([k, v]) => { if (v !== undefined) m.set(k, v); });
-        shapesOf(doc).set(s.id, m);
-      });
+      const vid = id();
+      await db.versions.insert({ _id: vid, boardId: b!._id, name: `Before AI: ${label}`, auto: false, state, shapeCount: all.length, createdBy: req.user!.id, createdAt: new Date() });
+      return vid;
     };
 
     if (body.action === 'organise') {
@@ -305,16 +302,11 @@ ${list}`, schemas.organise) as { groups: { title: string; ids: string[] }[] };
       if (!groups.length) fail(502, 'The AI couldn’t find themes in these notes. Try again.', 'ai_bad');
       const box = bounds(stickies);
       const { frames, moves } = layoutGroups(stickies, groups, { x: box.x, y: box.y });
-      await keep('organise');
+      const versionId = await keep('organise');
       // selected frames left empty by the move are replaced by the new groups
       const moved = new Set(Object.keys(moves));
       const emptied = chosen.filter((f) => f.type === 'frame' && !all.some((s) => s.type !== 'frame' && !moved.has(s.id) && s.x >= f.x && s.y >= f.y && s.x + s.w <= f.x + f.w && s.y + s.h <= f.y + f.h)).map((f) => f.id);
-      await rooms.edit(b!._id, (doc) => doc.transact(() => {
-        emptied.forEach((fid) => shapesOf(doc).delete(fid));
-        Object.entries(moves).forEach(([sid2, p]) => { const m = shapesOf(doc).get(sid2); if (m) { m.set('x', p.x); m.set('y', p.y); } });
-        insert(doc, frames);
-      }, 'ai'), req.user!.id);
-      return res.json({ ok: true, ids: [...frames.map((f) => f.id), ...Object.keys(moves)], message: `Sorted ${Object.keys(moves).length} notes into ${frames.length} groups.` });
+      return res.json({ ok: true, ops: { create: frames, update: moves, remove: emptied }, ids: [...frames.map((f) => f.id), ...Object.keys(moves)], message: `Sorted ${Object.keys(moves).length} notes into ${frames.length} groups.`, versionId });
     }
 
     if (body.action === 'summarise') {
@@ -330,8 +322,7 @@ ${list}`, schemas.summarise) as { title: string; points: string[] };
       const box = bounds(chosen.length ? chosen : all);
       const text = `${clip(out.title || 'Summary', 60)}\n${points.map((p) => `• ${p}`).join('\n')}`;
       const [note] = placeClear([{ id: sid(), type: 'sticky', x: box.x + box.w + 80, y: box.y, w: 340, h: 300, text, color: '#D8C8FF', align: 'left' }], all);
-      await rooms.edit(b!._id, (doc) => doc.transact(() => insert(doc, [note]), 'ai'), req.user!.id);
-      return res.json({ ok: true, ids: [note.id], message: 'Summary added to the board.' });
+      return res.json({ ok: true, ops: { create: [note] }, ids: [note.id], message: 'Summary added to the board.' });
     }
 
     if (body.action === 'diagram') {
@@ -342,8 +333,7 @@ Use 4 to 12 nodes. Kinds: "start" for the first node, "end" for final outcomes, 
       if (nodes.length < 2) fail(502, 'The AI couldn’t draw that. Try describing it differently.', 'ai_bad');
       const at = body.at ?? (() => { const bx = bounds(all); return { x: bx.x + bx.w + 400, y: bx.y + 300 }; })();
       const shapes = placeClear(layoutDiagram(nodes, out.edges || [], at), all);
-      await rooms.edit(b!._id, (doc) => doc.transact(() => insert(doc, shapes), 'ai'), req.user!.id);
-      return res.json({ ok: true, ids: shapes.map((s) => s.id), message: `Drew ${nodes.length} steps.` });
+      return res.json({ ok: true, ops: { create: shapes }, ids: shapes.map((s) => s.id), message: `Drew ${nodes.length} steps.` });
     }
 
     // expand
@@ -358,8 +348,7 @@ ${context || '(nothing else yet)'}`, schemas.expand) as { ideas: string[] };
     const ideas = (out?.ideas || []).map((t) => clip(String(t), 140)).filter(Boolean).slice(0, 6);
     if (!ideas.length) fail(502, 'The AI couldn’t come up with ideas this time. Try again.', 'ai_bad');
     const shapes = layoutRing(source!, ideas, all);
-    await rooms.edit(b!._id, (doc) => doc.transact(() => insert(doc, shapes), 'ai'), req.user!.id);
-    return res.json({ ok: true, ids: shapes.filter((s) => s.type === 'sticky').map((s) => s.id), message: `Added ${ideas.length} ideas.` });
+    return res.json({ ok: true, ops: { create: shapes }, ids: shapes.filter((s) => s.type === 'sticky').map((s) => s.id), message: `Added ${ideas.length} ideas.` });
   }));
 
   r.get('/ai/status', route(async (req, res) => {

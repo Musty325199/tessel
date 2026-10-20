@@ -7,6 +7,7 @@ import { BoardConnection, type Status } from '../sync';
 import { Avatars, usePeers } from '../presence';
 import { CommentLayer, CommentsList, pinPos, useComments, type Draft, type Person } from '../comments';
 import { shapeById } from '../store';
+import type { AiResult } from '../AiPanel';
 import { PresentBar, TimerPicker, TimerPill, VoteBar, VoteMarks, slides, timer, useMeta, useVotes, voting, type TimerState, type VoteState } from '../session';
 import { go, href, linkProps } from '../router';
 import Icon, { Mark } from '../icons';
@@ -163,7 +164,7 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
         {canEdit && <>
           <span className="sep" />
           <button className="ib" onClick={() => undo.undo()} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl Z)"><Icon n="undo" size={20} /></button>
-          <button className="ib desk" onClick={() => undo.redo()} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl Shift Z)"><Icon n="redo" size={20} /></button>
+          <button className={'ib' + (canRedo ? '' : ' desk')} onClick={() => undo.redo()} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl Shift Z)"><Icon n="redo" size={20} /></button>
         </>}
       </div>
       <div className="pill people">
@@ -191,7 +192,10 @@ export default function BoardPage({ id, k }: { id: string; k: string | null }) {
   return (
     <div className="board-page">
       <Board awareness={conn?.awareness} readOnly={!canEdit && !!(role || info)} loaded={loaded} top={top} onApi={(a) => { boardApi.current = a; }} onFollowChange={setFollowing}
-        onAi={canEdit && user ? async (r) => api<{ ids: string[]; message: string }>(`/api/boards/${id}/ai${k ? `?k=${encodeURIComponent(k)}` : ''}`, { method: 'POST', body: r }) : undefined}
+        onAi={canEdit && user ? async (r) => {
+          const q = k ? `?k=${encodeURIComponent(k)}` : '';
+          return api<AiResult>(`/api/boards/${id}/ai${q}`, { method: 'POST', body: r });
+        } : undefined}
         uploadImage={canUpload && user && canEdit ? uploadImage : undefined}
         tapOverride={voteState?.active ? (sh) => {
           if (sh.type !== 'sticky') return false;
