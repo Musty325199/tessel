@@ -51,6 +51,7 @@ const P: Record<string, JSX.Element> = {
   timer: <><circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2M10 2.5h4" strokeLinecap="round" /></>,
   vote: <><circle cx="8" cy="9" r="2.4" /><circle cx="16" cy="9" r="2.4" /><circle cx="12" cy="16" r="2.4" /></>,
   present: <><rect x="3.5" y="4.5" width="17" height="11" rx="2" /><path d="M12 15.5v4M8.5 19.5h7" strokeLinecap="round" /></>,
+  multi: <><rect x="3.5" y="3.5" width="10" height="10" rx="2" strokeDasharray="2.5 2" /><rect x="10.5" y="10.5" width="10" height="10" rx="2" /><path d="M13 15.5l1.8 1.8 3.2-3.6" strokeLinecap="round" strokeLinejoin="round" /></>,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />,
   close: <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />,
   reset: <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.7h3.7" strokeLinecap="round" strokeLinejoin="round" />,

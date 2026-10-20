@@ -79,6 +79,9 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
   const uploadImageRef = useRef(uploadImage); uploadImageRef.current = uploadImage;
   const tapRef = useRef(tapOverride); tapRef.current = tapOverride;
   const [aiOpen, setAiOpen] = useState(false);
+  const [multi, setMultiState] = useState(false);
+  const multiRef = useRef(false);
+  const setMulti = (v: boolean) => { multiRef.current = v; setMultiState(v); };
   const shapes = useShapes();
   const rootRef = useRef<HTMLDivElement>(null);
   const [cam, setCamState] = useState<Cam>({ x: 0, y: 0, z: 1 });
@@ -294,9 +297,10 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
     switch (t) {
       case 'select': {
         if (hitId && tapRef.current) { const hs = shapeById(hitId); if (hs && tapRef.current(hs)) return; }
+        const adding = e.shiftKey || multiRef.current; // phones: "Select several" mode works like holding Shift
         if (hitId) {
           let next = selRef.current;
-          if (e.shiftKey) next = next.includes(hitId) ? next.filter((x) => x !== hitId) : [...next, hitId];
+          if (adding) next = next.includes(hitId) ? next.filter((x) => x !== hitId) : [...next, hitId];
           else if (!next.includes(hitId)) next = [hitId];
           setSel(next);
           if (!next.includes(hitId)) return;
@@ -309,11 +313,11 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
           const orig: Record<string, Shape> = {};
           ids.forEach((id) => { const s = shapeById(id); if (s) orig[id] = s; });
           gesture.current = { kind: 'move', start: w, screen: { x: e.clientX, y: e.clientY }, ids: Array.from(ids), orig, moved: false, hit: hitId };
-        } else if (e.pointerType === 'touch') {
+        } else if (e.pointerType === 'touch' && !multiRef.current) {
           gesture.current = { kind: 'pan', start: { x: e.clientX, y: e.clientY }, cam: camRef.current, moved: false, clearOnTap: true };
         } else {
-          const base = e.shiftKey ? selRef.current : [];
-          if (!e.shiftKey) setSel([]);
+          const base = adding ? selRef.current : [];
+          if (!adding) setSel([]);
           gesture.current = { kind: 'marquee', start: w, base };
         }
         return;
@@ -474,7 +478,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
           const now = performance.now();
           if (lastTap.current.id === g.hit && now - lastTap.current.t < 380) { startEdit(g.hit); lastTap.current = { t: 0, id: '' }; }
           else lastTap.current = { t: now, id: g.hit };
-          if (!e.shiftKey && selRef.current.length > 1) setSel([g.hit]);
+          if (!e.shiftKey && !multiRef.current && selRef.current.length > 1) setSel([g.hit]);
         }
         break;
       }
@@ -809,8 +813,16 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
           say(res.message, { label: 'Undo', run: () => { undo.undo(); say('Undone. Use Redo to bring it back.'); } });
         }} />
       )}
+      {multi && (
+        <div className="multibar" role="status">
+          <span><b>{sel.length} selected</b><small>Tap items to add or remove. Drag on empty space to box-select.</small></span>
+          <button className="textbtn" onClick={() => setSel(allShapes().map((x) => x.id))}>All</button>
+          <button className="btn primary" onClick={() => setMulti(false)}>Done</button>
+        </div>
+      )}
       {tray === 'more' && (
         <div className="tray">
+          <button className={'tool' + (multi ? ' on' : '')} aria-label="Select several" title="Select several" onClick={() => { setTray(null); setTool('select'); setMulti(!multi); }}><Icon n="multi" /></button>
           <button className={'tool' + (tool === 'eraser' ? ' on' : '')} aria-label="Eraser" onClick={() => setTool('eraser')}><Icon n="eraser" /></button>
           <button className="tool" aria-label="Add an image" onClick={() => { setTray(null); fileRef.current?.click(); }}><Icon n="image" /></button>
           {awareness && <button className="tool" aria-label="React or say something" onClick={() => setTray('react')}><Icon n="react" /></button>}
