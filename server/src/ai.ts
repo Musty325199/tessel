@@ -7,7 +7,7 @@ import { canEdit, roleFor } from './access.js';
 import type { Rooms } from './realtime.js';
 import { config } from './config.js';
 import { shapesOf } from './ydoc.js';
-import { fail, id, parse, route } from './util.js';
+import { HttpError, fail, id, parse, route } from './util.js';
 import type { TShape } from '../../shared/templates.js';
 import { STICKY } from '../../shared/templates.js';
 import * as Y from 'yjs';
@@ -29,46 +29,54 @@ async function pickModel(key: string): Promise<string> {
   return (resolvedModel = flash[0] || names[0] || config.geminiModel);
 }
 
+type Attempt = { model: string; schema: boolean; thinking?: object };
+let working: Attempt | null = null; // the first setup that worked is reused for later requests
+
 export const gemini: AiModel = async (prompt, schema) => {
   if (!config.geminiKey) fail(503, 'AI isn’t switched on for this server yet. The owner needs to add a Gemini key.', 'ai_off');
-  const call = (model: string, withSchema: boolean) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+  const call = (a: Attempt) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(a.model)}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiKey },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: withSchema ? prompt : `${prompt}\n\nReply with JSON only, matching this JSON schema:\n${JSON.stringify(schema)}` }] }],
-      generationConfig: withSchema ? { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.4 } : { responseMimeType: 'application/json', temperature: 0.4 },
+      contents: [{ role: 'user', parts: [{ text: a.schema ? prompt : `${prompt}\n\nReply with JSON only, matching this JSON schema:\n${JSON.stringify(schema)}` }] }],
+      generationConfig: {
+        responseMimeType: 'application/json', temperature: 0.4,
+        ...(a.schema ? { responseSchema: schema } : {}),
+        // these tasks need speed, not long reasoning: thinking models are asked to think briefly
+        ...(a.thinking ? { thinkingConfig: a.thinking } : {}),
+      },
     }),
-    signal: AbortSignal.timeout(45000),
+    signal: AbortSignal.timeout(40000),
   });
-  // try the saved model first; if Google rejects the model or the schema, pick another model and finally ask without a schema
-  const attempts: { model: () => Promise<string>; schema: boolean }[] = [
-    { model: async () => resolvedModel || config.geminiModel, schema: true },
-    { model: async () => { resolvedModel = null; return pickModel(config.geminiKey); }, schema: true },
-    { model: async () => resolvedModel || pickModel(config.geminiKey), schema: false },
+  const main = config.geminiModel;
+  const attempts: Attempt[] = [
+    ...(working ? [working] : []),
+    { model: main, schema: true, thinking: { thinkingLevel: 'low' } },
+    { model: main, schema: true, thinking: { thinkingBudget: 0 } },
+    { model: 'gemini-flash-lite-latest', schema: true },
+    { model: main, schema: false },
   ];
   let lastErr = '';
+  const started = Date.now();
   for (const a of attempts) {
-    const model = await a.model();
+    if (Date.now() - started > 75000) break; // don't keep the person waiting forever
     let r: Response;
-    try { r = await call(model, a.schema); } catch (e) { lastErr = String(e); continue; }
+    try { r = await call(a); } catch (e) { lastErr = `${a.model}: ${(e as Error).name === 'TimeoutError' ? 'timed out' : String(e)}`; console.error('gemini', lastErr); continue; }
     if (r.ok) {
-      resolvedModel = model;
       const data = (await r.json()) as { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[] };
       const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('').trim();
       const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-      try { return JSON.parse(json); } catch { lastErr = 'bad json: ' + text.slice(0, 200); continue; }
+      try { const out = JSON.parse(json); working = a; return out; } catch { lastErr = `${a.model}: bad json ${text.slice(0, 160)}`; continue; }
     }
     const body = (await r.text()).slice(0, 600);
-    lastErr = `${r.status} ${model}: ${body}`;
+    lastErr = `${r.status} ${a.model}: ${body.replace(/\s+/g, ' ').slice(0, 300)}`;
     console.error('gemini', lastErr);
     if (r.status === 429) fail(429, 'The AI is busy right now (free plan limit). Try again in a minute.', 'ai_busy');
-    if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|API has not been used|SERVICE_DISABLED/i.test(body)) {
-      fail(503, 'The Gemini key on the server isn’t working. Check GEMINI_API_KEY in Render.', 'ai_key');
-    }
-    if (/location is not supported|FAILED_PRECONDITION/i.test(body)) fail(503, 'Gemini’s free plan isn’t available for this server’s region.', 'ai_region');
+    if (/API key not valid|API_KEY_INVALID|API has not been used|SERVICE_DISABLED/i.test(body)) fail(503, 'The Gemini key on the server isn’t working. Check GEMINI_API_KEY in Render.', 'ai_key');
+    if (/location is not supported/i.test(body)) fail(503, 'Gemini’s free plan isn’t available for this server’s region.', 'ai_region');
   }
   console.error('gemini gave up:', lastErr);
-  fail(502, 'The AI couldn’t answer this time. Try again.', 'ai_failed');
+  throw Object.assign(new HttpError(502, 'The AI couldn’t answer this time. Try again.', 'ai_failed'), { detail: lastErr });
 };
 
 /** Lets the owner see why AI isn't working without reading server logs. */
@@ -355,6 +363,12 @@ ${context || '(nothing else yet)'}`, schemas.expand) as { ideas: string[] };
 
   r.get('/ai/status', route(async (req, res) => {
     if (req.query.check === '1') return res.json({ enabled: !!config.geminiKey, check: await aiDiagnose() });
+    if (req.query.check === '2') {
+      // a full-size request, timed, exactly like "Draw it for me"
+      const t0 = Date.now();
+      try { const out = await model('Draw a flowchart for: "how a customer orders food". Use 4 to 12 nodes. Kinds: start, step, decision, end. Short labels. Node ids like n1.', schemas.diagram); return res.json({ ok: true, ms: Date.now() - t0, working, out }); }
+      catch (e) { return res.json({ ok: false, ms: Date.now() - t0, error: (e as Error).message, detail: (e as { detail?: string }).detail }); }
+    }
     res.json({ enabled: !!config.geminiKey });
   }));
   return r;
