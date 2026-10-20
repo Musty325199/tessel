@@ -5,7 +5,7 @@ const BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, '');
 
 export type Route =
   | { name: 'home' }
-  | { name: 'login'; mode: 'in' | 'up'; next: string }
+  | { name: 'login'; mode: 'in' | 'up' | 'forgot' | 'reset'; next: string; token?: string }
   | { name: 'boards'; tab: 'all' | 'starred' | 'shared' | 'trash' }
   | { name: 'board'; id: string; k: string | null }
   | { name: 'try' }
@@ -17,6 +17,8 @@ export function parseRoute(): Route {
   const parts = path.split('/').filter(Boolean);
   if (!parts.length) return { name: 'home' };
   if (parts[0] === 'login' || parts[0] === 'signup') return { name: 'login', mode: parts[0] === 'signup' ? 'up' : 'in', next: q.get('next') || '' };
+  if (parts[0] === 'forgot') return { name: 'login', mode: 'forgot', next: '' };
+  if (parts[0] === 'reset') return { name: 'login', mode: 'reset', next: '', token: q.get('t') || '' };
   if (parts[0] === 'boards') {
     const tab = (['starred', 'shared', 'trash'].includes(parts[1]) ? parts[1] : 'all') as 'all';
     return { name: 'boards', tab };

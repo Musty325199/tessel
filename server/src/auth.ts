@@ -1,9 +1,11 @@
+import { timingSafeEqual } from 'node:crypto';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { config } from './config.js';
+import { sendMail } from './mail.js';
 import type { Store, User } from './db/types.js';
 import { HttpError, PEOPLE, fail, id, parse, pick, route, sha256 } from './util.js';
 
@@ -85,6 +87,39 @@ export function authRoutes(db: Store) {
     const t = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : '';
     if (t) await db.sessions.delete(sha256(t));
     res.json({ ok: true });
+  }));
+
+  // ---- forgot password: email a single-use link that works for 30 minutes
+  const RESET_MIN = 30;
+  const forgotLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 8, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Too many reset requests. Try again in an hour.', code: 'rate_limited' } });
+  r.post('/forgot', forgotLimiter, route(async (req, res) => {
+    const body = parse(z.object({ email }), req.body);
+    const mail = !!(config.resendKey && config.mailFrom);
+    if (!mail) fail(503, 'Password reset by email isn’t switched on for this server yet.', 'mail_off');
+    const u = await db.users.byEmail(body.email);
+    if (u) {
+      const secret = id(32);
+      await db.users.update(u._id, { resetHash: sha256(secret), resetExpires: new Date(Date.now() + RESET_MIN * 60000) });
+      await sendMail(u.email, 'Reset your Tessel password', {
+        text: `Hi ${u.name},\n\nSomeone (hopefully you) asked to reset your Tessel password. The link below works once, for the next ${RESET_MIN} minutes.`,
+        link: { href: `${config.appUrl}/reset?t=${u._id}.${secret}`, label: 'Choose a new password' },
+        footer: 'If you didn’t ask for this, ignore this email. Your password stays the same.',
+      });
+    }
+    // the same answer whether or not the email has an account, so nobody can find out who uses Tessel
+    res.json({ ok: true });
+  }));
+
+  r.post('/reset', limiter, route(async (req, res) => {
+    const body = parse(z.object({ token: z.string().min(20).max(200), password }), req.body);
+    const [userId, secret] = body.token.split('.');
+    const u = userId && secret ? await db.users.byId(userId) : null;
+    const want = Buffer.from(u?.resetHash || '0'.repeat(64)), got = Buffer.from(sha256(secret || ''));
+    const ok = !!u?.resetHash && want.length === got.length && timingSafeEqual(want, got) && !!u.resetExpires && new Date(u.resetExpires) > new Date();
+    if (!ok) fail(400, 'This reset link has expired or was already used. Ask for a new one.', 'bad_reset');
+    await db.users.update(u!._id, { passwordHash: await bcrypt.hash(body.password, 11), resetHash: null, resetExpires: null });
+    await db.sessions.deleteForUser(u!._id); // sign out every other device
+    res.json(await issue(u!));
   }));
 
   r.get('/me', requireUser, route(async (req, res) => {

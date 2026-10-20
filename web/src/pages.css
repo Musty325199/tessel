@@ -541,3 +541,21 @@ a.textbtn { text-decoration: none; }
 .stylebar { max-width: calc(100vw - 16px); box-sizing: border-box; }
 .stylebar .fmt-wrap { min-width: 0; flex: 1 1 auto; }
 .stylebar .fmt { max-width: 100%; }
+
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.textbtn.small { font-size: 13px; font-weight: 600; }
+
+/* first-time tour */
+.guide { position: fixed; inset: 0; z-index: 90; animation: pop .18s ease-out; }
+.guide-ring { position: fixed; border-radius: 16px; box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--accent, #2F5BFF), 0 0 0 200vmax rgba(15, 20, 30, .4); pointer-events: none; transition: all .2s ease; }
+.guide-card { position: fixed; background: var(--surface); color: var(--ink); border-radius: 16px; padding: 14px 16px 12px; box-shadow: var(--lift); display: flex; flex-direction: column; gap: 4px; }
+.guide-card::after { content: ''; position: absolute; left: var(--arrow); bottom: -7px; width: 14px; height: 14px; background: var(--surface); transform: translateX(-50%) rotate(45deg); border-radius: 3px; }
+.guide-card.below::after { bottom: auto; top: -7px; }
+.guide-step { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.guide-card b { font-size: 17px; }
+.guide-card p { margin: 0 0 8px; font-size: 14.5px; line-height: 1.45; color: var(--ink-2); }
+.guide-row { display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 1; }
+.guide-row .btn { height: 38px; padding: 0 18px; }
+
+/* hints wrap instead of being cut off */
+.toast { white-space: normal; text-align: center; width: max-content; line-height: 1.35; }

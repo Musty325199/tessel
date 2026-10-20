@@ -72,6 +72,8 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
 export const auth = {
   async signup(name: string, email: string, password: string) { setSession(await api<Session>('/api/auth/signup', { method: 'POST', body: { name, email, password }, auth: false })); },
   async login(email: string, password: string) { setSession(await api<Session>('/api/auth/login', { method: 'POST', body: { email, password }, auth: false })); },
+  async forgot(email: string) { await api('/api/auth/forgot', { method: 'POST', body: { email }, auth: false }); },
+  async reset(token: string, password: string) { setSession(await api<Session>('/api/auth/reset', { method: 'POST', body: { token, password }, auth: false })); },
   async logout() {
     const rt = ls.get('tessel:rt');
     setSession(null);

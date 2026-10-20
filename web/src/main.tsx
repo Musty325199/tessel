@@ -25,7 +25,7 @@ function Root() {
   const r = useRoute();
   switch (r.name) {
     case 'home': return <Landing />;
-    case 'login': return <Login key={r.mode} mode={r.mode} next={r.next} />;
+    case 'login': return <Login key={r.mode} mode={r.mode} next={r.next} token={r.token} />;
     case 'boards': return <Dashboard tab={r.tab} />;
     case 'board': return <BoardPage key={r.id + (r.k || '')} id={r.id} k={r.k} />;
     case 'try': return <TryPage />;
@@ -41,3 +41,8 @@ function Root() {
 }
 
 createRoot(document.getElementById('root')!).render(<Root />);
+
+// installable app + opens offline (production only, so local development never serves stale files)
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js', { scope: import.meta.env.BASE_URL }).catch(() => {}); });
+}

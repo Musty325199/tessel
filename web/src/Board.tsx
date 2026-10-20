@@ -7,6 +7,7 @@ import {
 import type { Awareness } from 'y-protocols/awareness';
 import { Cursors, RemoteSelections, Reactions, usePeers, type Peer } from './presence';
 import { FORMATTABLE, FormatBar, applyList } from './format';
+import { Guide } from './guide';
 import { AiPanel, type AiRequest, type AiResult } from './AiPanel';
 import type { End, Shape } from './store';
 import { ArrowLayer, ShapeView } from './ShapeView';
@@ -756,6 +757,7 @@ export default function Board({ awareness = null, readOnly = false, embedded = f
       </div>
 
       {top && <header className="top">{top}</header>}
+      {!embedded && !readOnly && ready && <Guide />}
       {following !== null && (() => { const p = peers.find((x) => x.clientId === following); return p ? <div className="following" style={{ ['--me' as string]: p.color }}>Following {p.name}<button onClick={() => setFollowing(null)}>Stop</button></div> : null; })()}
 
       {/* ---- formatting bar for the selection (stays while you type) */}

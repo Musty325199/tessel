@@ -21,7 +21,8 @@
 - Arrows that stay attached to shapes and clip to their outline (rectangle, ellipse and diamond maths)
 - Text formatting: four fonts, sizes, bold/italic/underline/strikethrough, alignment, bullet and numbered lists, text colour and highlight; notes grow to fit their text
 - Infinite canvas with pinch-zoom, two-finger pan, marquee select, resize, duplicate, layering, undo/redo, keyboard shortcuts
-- Phone first: touch-sized tools, a formatting bar that moves above the keyboard, the note being edited scrolls into view
+- Phone first: named, touch-sized tools, a formatting bar you can drag anywhere (and that moves above the keyboard), the note being edited scrolls into view, a short first-time tour
+- Installable: add it to the home screen and it opens full screen, even with no signal (service worker + web manifest)
 
 **Together**
 - Live cursors with names, presence avatars, other people's selections, follow someone's view
@@ -65,7 +66,7 @@ flowchart LR
 - **A real sync server.** The server speaks the Yjs sync and awareness protocols over WebSockets itself (no hosted service). The first frame carries the access token, so tokens never appear in URLs or logs. Viewers can read, but their updates are dropped on the server.
 - **Saving.** Writes are debounced (1.5 s, never more than 8 s apart while editing). Every 10 minutes of activity creates an automatic version; the last 40 are kept. Dashboard thumbnails are SVGs drawn on the server from the CRDT.
 - **Access control.** Owner, editor and viewer roles, plus link access. Changing someone's access re-checks live connections at once.
-- **Auth.** bcrypt passwords, 15-minute JWTs kept in memory, rotating single-use refresh tokens stored as SHA-256 hashes, timing-safe login, rate limits.
+- **Auth.** bcrypt passwords, 15-minute JWTs kept in memory, rotating single-use refresh tokens stored as SHA-256 hashes, timing-safe login, rate limits. Password reset links are single-use, expire in 30 minutes, are stored only as hashes, never reveal whether an email has an account, and sign out every other device.
 - **Shared session state.** Timers, votes and presenting live in the doc (or in awareness), so they sync and survive refreshes with no extra endpoints. Timers use the server clock offset from the WebSocket handshake.
 - **Exports** are drawn by a canvas renderer (text wrapping, fonts, arrows, pen strokes, images) rather than screenshotting the DOM, so they match on every device.
 

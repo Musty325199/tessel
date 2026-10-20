@@ -1,3 +1,4 @@
+import { SEEN } from '../playwright.config';
 import { test, expect, type Browser, type Page } from '@playwright/test';
 
 const unique = () => `${Date.now()}${Math.floor(Math.random() * 1e6)}`;
@@ -35,7 +36,7 @@ test('two people edit the same board live', async ({ page, browser }, info) => {
   const link = await page.inputValue('#share-link');
   await page.keyboard.press('Escape');
 
-  const other = await (browser as Browser).newContext();
+  const other = await (browser as Browser).newContext({ storageState: SEEN });
   const guest = await other.newPage();
   await guest.goto(link.replace(/^https?:\/\/[^/]+/, ''));
   await expect(guest.locator('.viewonly')).toContainText('Sign in to edit');
@@ -57,4 +58,30 @@ test('two people edit the same board live', async ({ page, browser }, info) => {
   await guest.mouse.click(1200, 120);
   await expect(page.locator('.sticky:has-text("Hello from the guest")')).toBeVisible();
   await other.close();
+});
+
+test('first-time tour shows once and can be skipped', async ({ browser }) => {
+  const ctx = await browser.newContext({ baseURL: 'http://localhost:4173', storageState: { cookies: [], origins: [] } });
+  const page = await ctx.newPage();
+  await page.goto('/try');
+  await expect(page.locator('.guide-card')).toContainText('Add a note');
+  await page.click('.guide-card >> text=Next');
+  await expect(page.locator('.guide-card')).toContainText('Bring your team in'); // the practice board has no AI step
+  await page.click('.guide-card >> text=Skip');
+  await expect(page.locator('.guide')).toHaveCount(0);
+  await page.reload();
+  await page.locator('.sticky').first().waitFor();
+  await page.waitForTimeout(1200);
+  await expect(page.locator('.guide')).toHaveCount(0);
+  await ctx.close();
+});
+
+test('forgot password page', async ({ page }) => {
+  await page.goto('/login');
+  await page.fill('#email', 'me@example.com');
+  await page.click('text=Forgot password?');
+  await expect(page.locator('h1')).toHaveText('Forgot your password?');
+  await expect(page.locator('#email')).toHaveValue('me@example.com');
+  await page.goto('/reset');
+  await expect(page.locator('h1')).toHaveText('This link isn’t complete');
 });

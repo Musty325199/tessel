@@ -8,6 +8,9 @@ export interface User {
   passwordHash: string;
   color: string;
   createdAt: Date;
+  /** password reset: sha256 of the emailed secret, and when it stops working */
+  resetHash?: string | null;
+  resetExpires?: Date | null;
 }
 
 export interface Session {
